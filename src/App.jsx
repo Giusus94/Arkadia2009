@@ -1950,9 +1950,207 @@ function FazioneCard({ fazione: faz }) {
 }
 
 // ═══════════════════════════════════════════════════════
+// EXPORT PDF — usa window.print() con una finestra dedicata
+// ═══════════════════════════════════════════════════════
+function exportPDF(pg) {
+  const c = pg.classe;
+  const f = pg.frammento;
+  const r = pg.razza;
+  const au = AU_MAP[f.nome];
+  const color = CAT_COLORS[c.cat] || "#534ab7";
+
+  const html = `<!DOCTYPE html><html lang="it"><head>
+<meta charset="UTF-8">
+<title>Scheda — ${pg.nome}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Raleway:wght@400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Raleway',sans-serif;background:#fff;color:#1a1a1a;font-size:9pt;line-height:1.4}
+  @page{size:A4;margin:1.2cm}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  h1{font-family:'Cinzel',serif;font-size:18pt;font-weight:900;color:${color};margin-bottom:2px}
+  h2{font-family:'Cinzel',serif;font-size:10pt;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.08em;margin:10px 0 4px;border-bottom:1px solid ${color}40;padding-bottom:2px}
+  h3{font-family:'Cinzel',serif;font-size:9pt;font-weight:700;color:#333;margin-bottom:2px}
+  .header{background:${color}12;border:1.5px solid ${color};border-radius:6px;padding:12px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start}
+  .header-left .sub{color:#555;font-size:8pt;margin-top:2px}
+  .rank-badge{background:${color};color:#fff;font-family:'Cinzel',serif;font-weight:900;padding:6px 14px;border-radius:4px;font-size:14pt}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+  .box{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:8px 10px}
+  .box-color{background:${color}0d;border:1px solid ${color}30;border-radius:4px;padding:8px 10px}
+  .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .stat{text-align:center;min-width:52px;background:#eee;border-radius:4px;padding:4px 6px}
+  .stat .label{font-size:6.5pt;color:#777;text-transform:uppercase;letter-spacing:.06em}
+  .stat .val{font-family:'Cinzel',serif;font-weight:900;font-size:13pt;color:${color}}
+  .stat .mod{font-size:7pt;color:#555}
+  .big-stat{text-align:center;background:${color}10;border:1px solid ${color}30;border-radius:4px;padding:6px 10px;min-width:60px}
+  .big-stat .label{font-size:6.5pt;color:#777;text-transform:uppercase}
+  .big-stat .val{font-family:'Cinzel',serif;font-weight:900;font-size:16pt;color:${color}}
+  .skill{border-left:3px solid ${color};padding:6px 8px;margin-bottom:6px;background:#f9f9f9}
+  .skill .name{font-family:'Cinzel',serif;font-weight:700;font-size:9pt}
+  .skill .cost{display:inline-block;background:${color}18;border:1px solid ${color}30;border-radius:3px;padding:1px 6px;font-size:7pt;font-weight:700;color:${color};margin-left:6px}
+  .skill .desc{font-size:8pt;color:#444;margin-top:2px}
+  .lv-row{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+  .lv{font-size:7pt;background:#eeebff;border-radius:3px;padding:1px 5px;color:#534ab7}
+  .rank-table{width:100%;border-collapse:collapse;font-size:8pt;margin-top:4px}
+  .rank-table th{background:${color};color:#fff;padding:3px 6px;text-align:center;font-weight:700}
+  .rank-table td{padding:3px 6px;text-align:center;border-bottom:1px solid #eee}
+  .rank-table tr:nth-child(even){background:#f5f5f5}
+  .rank-table .rank-s{background:#fef3d0;font-weight:700}
+  .au-box{background:#fef9e7;border:1.5px solid #d4a843;border-radius:6px;padding:10px 12px;margin-top:8px}
+  .au-box .au-title{font-family:'Cinzel',serif;font-weight:700;color:#9a6f0a;font-size:9.5pt;margin-bottom:4px}
+  .trackers{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+  .tracker-box{border:1px solid #ddd;border-radius:4px;padding:6px 8px}
+  .tracker-box .label{font-size:7pt;color:#777;text-transform:uppercase;margin-bottom:2px}
+  .tracker-box .line{height:24px;border-bottom:1px solid #ccc;margin-top:4px}
+  .note-box{border:1px solid #ddd;border-radius:4px;padding:8px;min-height:60px;margin-top:6px}
+  .fazione-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .fazione-badge{border:1px solid #ccc;border-radius:3px;padding:2px 7px;font-size:7.5pt;color:#555}
+  .ps-table{width:100%;border-collapse:collapse;font-size:8pt}
+  .ps-table th{background:#333;color:#fff;padding:3px 6px;text-align:left}
+  .ps-table td{padding:3px 6px;border-bottom:1px solid #eee}
+  .ps-table tr:nth-child(even){background:#f5f5f5}
+  .page-break{page-break-before:always}
+  .footer{margin-top:10px;text-align:center;font-size:7pt;color:#aaa;border-top:1px solid #eee;padding-top:4px}
+</style>
+</head><body>
+
+<!-- INTESTAZIONE -->
+<div class="header">
+  <div class="header-left">
+    <h1>${pg.nome}</h1>
+    <div class="sub">${c.icon} ${c.nome} &nbsp;·&nbsp; ${r.nome} &nbsp;·&nbsp; Rank F — ${RANK_TITOLI["F"]}</div>
+    ${pg.background ? `<div class="sub" style="color:#8a6f00;margin-top:2px">Background: ${pg.background}</div>` : ""}
+  </div>
+  <div class="rank-badge">F</div>
+</div>
+
+<!-- STATISTICHE PRINCIPALI -->
+<div class="grid2">
+  <div>
+    <h2>Caratteristiche</h2>
+    <div class="stat-row">
+      ${["FOR","AGI","RES","INT","PER","CAR"].map((s,i)=>{
+        const vals=[c.FOR,c.AGI,c.RES,c.INT,c.PER,c.CAR];
+        const v=vals[i]; const m=Math.floor((v-10)/2);
+        return `<div class="stat"><div class="label">${s}</div><div class="val">${v}</div><div class="mod">${m>=0?"+":""}${m}</div></div>`;
+      }).join("")}
+    </div>
+    <h2>Statistiche Rank F</h2>
+    <div class="stat-row">
+      <div class="big-stat"><div class="label">HP</div><div class="val">${pg.hp}</div></div>
+      <div class="big-stat"><div class="label">Flusso</div><div class="val">${pg.fl}</div></div>
+      <div class="big-stat"><div class="label">Difesa</div><div class="val">${pg.dif}</div></div>
+      <div class="big-stat"><div class="label">Velocità</div><div class="val">${pg.vel}</div></div>
+      <div class="big-stat"><div class="label">Scintille</div><div class="val">${pg.scintille}</div></div>
+      <div class="big-stat"><div class="label">Dado</div><div class="val" style="font-size:11pt">${c.dado}</div></div>
+    </div>
+  </div>
+  <div>
+    <h2>Progressione Rank (PA)</h2>
+    <table class="rank-table">
+      <tr><th>Rank</th><th>Titolo</th><th>PA</th><th>HP</th><th>Flusso</th><th>Dif</th></tr>
+      ${RANKS.map(rk=>{
+        const isS=["S","SS","SSS"].includes(rk);
+        const hp=Math.round(pg.hp*RANK_MHP[rk]);
+        const fl=Math.round(pg.fl*RANK_MFL[rk]);
+        const dif=pg.dif+RANK_BDIF[rk];
+        return `<tr${isS?' class="rank-s"':''}><td><b>${rk}</b></td><td style="font-size:7pt">${RANK_TITOLI[rk]}</td><td>${RANK_PA[rk]}</td><td>${hp}</td><td>${fl}</td><td>${dif}</td></tr>`;
+      }).join("")}
+    </table>
+  </div>
+</div>
+
+<!-- RAZZA -->
+<h2>Razza — ${r.nome}</h2>
+<div class="box-color">
+  <div style="font-weight:700;color:#8a6f00;margin-bottom:3px">${r.bonus}</div>
+  <div style="font-size:8pt;margin-bottom:2px"><b>Tratto 1:</b> ${r.tratto1}</div>
+  <div style="font-size:8pt"><b>Tratto 2:</b> ${r.tratto2}</div>
+  <div style="font-size:7.5pt;color:#c0392b;margin-top:3px">Malus: ${r.malus}</div>
+</div>
+
+<!-- SKILL -->
+<h2>Skill Base</h2>
+${c.skills.map(sk=>`
+<div class="skill">
+  <div><span class="name">${sk.nome}</span><span class="cost">${sk.costo} Flusso</span></div>
+  <div class="desc">${sk.desc}</div>
+  <div class="lv-row">
+    <span class="lv">Lv2: ${sk.lv2}</span>
+    <span class="lv">Lv3: ${sk.lv3}</span>
+    <span class="lv">Lv4: ${sk.lv4}</span>
+    <span class="lv" style="background:#fef3d0;color:#9a6f0a">Lv5 FINALE: ${sk.lv5}</span>
+  </div>
+</div>`).join("")}
+
+<!-- FRAMMENTO -->
+<h2>Frammento del Creatore</h2>
+<div class="box-color">
+  <h3>${f.nome} <span style="font-size:8pt;color:#777;font-weight:400">— ${f.fonte}</span></h3>
+  <div style="font-style:italic;color:#555;font-size:8pt;margin:3px 0">"${f.flavor}"</div>
+  <div style="font-size:8.5pt">${f.mec}</div>
+</div>
+
+${au ? `<div class="au-box">
+  <div style="font-size:7.5pt;color:#9a6f0a;text-transform:uppercase;font-weight:700;margin-bottom:2px">✦ AU — Abilità Unica (si sblocca al Rank S)</div>
+  <div class="au-title">${au.nome}</div>
+  <div style="font-size:8.5pt">${au.desc}</div>
+  <div style="font-size:7pt;color:#999;margin-top:3px">1 uso gratuito per sessione. Usi aggiuntivi: 3 Scintille ciascuno.</div>
+</div>` : ""}
+
+<!-- TRACKERS -->
+<div class="page-break"></div>
+<h1 style="font-size:14pt;margin-bottom:8px">${pg.nome} — Scheda di Gioco</h1>
+
+<h2>Tracker PA (Punti Avanzamento)</h2>
+<div class="box">
+  <div style="font-size:8pt;margin-bottom:6px">PA attuali: _________ &nbsp;&nbsp; Rank attuale: _________ &nbsp;&nbsp; Prossimo Rank a: _________</div>
+  <div style="font-size:7.5pt;color:#555">F→E: 100 | E→D: 300 | D→C: 700 | C→B: 1500 | B→A: 3000 | A→S: 6000 | S→SS: 12000 | SS→SSS: 25000</div>
+</div>
+
+<h2>Tracker Skill (PS — Punti Sogno)</h2>
+<table class="ps-table">
+  <tr><th>Skill</th><th>Lv Skill</th><th>PS totali</th><th>Prossima soglia</th><th>Note effetto attuale</th></tr>
+  ${c.skills.map(sk=>`<tr><td><b>${sk.nome}</b></td><td style="text-align:center">_</td><td style="text-align:center">__</td><td style="text-align:center">Lv2=20 / Lv3=70 / Lv4=170 / Lv5=370</td><td></td></tr>`).join("")}
+  <tr><td><i>Skill extra 1</i></td><td></td><td></td><td></td><td></td></tr>
+  <tr><td><i>Skill extra 2</i></td><td></td><td></td><td></td><td></td></tr>
+</table>
+
+<h2>Scintille del Creatore</h2>
+<div class="box">
+  <div style="font-size:8pt;margin-bottom:4px">Scintille: ${pg.scintille} (max 10) &nbsp;&nbsp; Attualmente: ___</div>
+  <div style="font-size:7.5pt;color:#555">1✦=Ritiro dado | 1✦=Impulso narrativo | 2✦=Sopravvivi a 0HP | 3✦=Attivazione extra Frammento | 2✦=Eco del Caos (+1d10) | 1✦=Memoria del Flusso</div>
+</div>
+
+<h2>Fazione & Reputazione</h2>
+<div class="box">
+  <div style="font-size:8pt;margin-bottom:4px">Fazione principale: ___________________________ &nbsp;&nbsp; RF: ____</div>
+  <div class="fazione-row">
+    ${FAZIONI.map(faz=>`<div class="fazione-badge">${faz.icon} ${faz.sigla}: ____</div>`).join("")}
+  </div>
+  <div style="font-size:7pt;color:#777;margin-top:4px">Gradi: Sconosciuto(0) → Simpatizzante(20) → Membro(60) → Fidato(150) → Capitano(350) → Leggenda(700)</div>
+</div>
+
+<h2>Equipaggiamento & Note</h2>
+<div class="note-box"></div>
+
+<h2>Background & Storia</h2>
+<div class="note-box" style="min-height:80px"></div>
+
+<div class="footer">Chaos System Arkadia2099 v7 · ${pg.nome} · Generato su arkadia2099.vercel.app</div>
+</body></html>`;
+
+  const w = window.open("", "_blank", "width=900,height=700");
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => { w.focus(); w.print(); };
+}
+
+// ═══════════════════════════════════════════════════════
 // PAGINA: GENERATORE PG
 // ═══════════════════════════════════════════════════════
-function GeneratorePage() {
+function GeneratorePage({ saveToTracker, setPage }) {
   const [step, setStep] = useState(0);
   const [catRoll, setCatRoll] = useState(null);
   const [grpRoll, setGrpRoll] = useState(null);
@@ -2239,8 +2437,10 @@ function GeneratorePage() {
                     <div style={{ marginTop:"0.4rem", fontSize:"0.82rem", color:"var(--gold)", fontStyle:"italic" }}>Background: {generated.background}</div>
                   )}
                 </div>
-                <div style={{ display:"flex", gap:"0.5rem" }}>
+                <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
                   <button className="btn btn-outline" style={{ fontSize:"0.75rem" }} onClick={restart}>🎲 Nuovo PG</button>
+                  <button className="btn btn-primary" style={{ fontSize:"0.75rem" }} onClick={() => { saveToTracker(generated); setPage("tracker"); }}>💾 Salva nel Tracker</button>
+                  <button className="btn btn-gold" style={{ fontSize:"0.75rem" }} onClick={() => exportPDF(generated)}>📄 Esporta PDF</button>
                 </div>
               </div>
             </div>
@@ -2449,9 +2649,41 @@ function TrackerPage() {
   }
 
   const pg = selected ? personaggi.find(p => p.id===selected) : null;
-  const rank = pg ? getRankFromPA(pg.pa) : null;
-  const nextRankPA = pg ? getNextRankPA(rank) : null;
-  const rankPct = pg && nextRankPA ? ((pg.pa - RANK_PA[rank]) / (nextRankPA - RANK_PA[rank])) * 100 : 100;
+  const rankAuto = pg ? getRankFromPA(pg.pa) : null;
+  // rankManuale: null = segue PA, altrimenti rank scelto a mano
+  const rank = pg ? (pg.rankManuale || rankAuto) : null;
+  const nextRankPA = pg ? getNextRankPA(rankAuto) : null;
+  const rankPct = pg && nextRankPA ? ((pg.pa - RANK_PA[rankAuto]) / (nextRankPA - RANK_PA[rankAuto])) * 100 : 100;
+
+  // Stats calcolate per il rank attuale
+  const pgStats = pg && pg.hp_base ? {
+    hp: Math.round(pg.hp_base * RANK_MHP[rank]),
+    fl: Math.round(pg.fl_base * RANK_MFL[rank]),
+    dif: pg.dif_base + RANK_BDIF[rank],
+    vel: pg.vel_base || "—",
+  } : null;
+
+  function setRankManuale(id, r) {
+    setPersonaggi(prev => prev.map(p => p.id===id ? { ...p, rankManuale: r==="auto" ? null : r } : p));
+  }
+
+  function updateFazione(id, val) {
+    setPersonaggi(prev => prev.map(p => p.id===id ? { ...p, fazione: val } : p));
+  }
+
+  function updateNote(id, val) {
+    setPersonaggi(prev => prev.map(p => p.id===id ? { ...p, note: val } : p));
+  }
+
+  function exportPGPDF(pg) {
+    if (!pg.classeData) { alert("Questo personaggio non ha dati completi per il PDF. Ricrealo dal Generatore."); return; }
+    exportPDF({
+      nome: pg.nome, classe: pg.classeData, frammento: pg.frammento,
+      razza: pg.razza, background: pg.background,
+      hp: pg.hp_base, fl: pg.fl_base, dif: pg.dif_base,
+      vel: pg.vel_base, scintille: pg.scintille || 3,
+    });
+  }
 
   return (
     <div className="anim-fade-in">
@@ -2529,11 +2761,70 @@ function TrackerPage() {
               <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:"1rem", flexWrap:"wrap" }}>
                 <div>
                   <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.4rem", fontWeight:700, color:"var(--text-bright)" }}>{pg.nome}</div>
-                  <div style={{ color:"var(--text-dim)", fontSize:"0.82rem", marginTop:"0.2rem" }}>{pg.classe}</div>
+                  <div style={{ color:"var(--text-dim)", fontSize:"0.82rem", marginTop:"0.2rem" }}>{pg.classe}{pg.razza ? ` · ${pg.razza.nome}` : ""}{pg.background ? ` · ${pg.background}` : ""}</div>
                 </div>
-                <div style={{ display:"flex", gap:"0.5rem", alignItems:"center" }}>
+                <div style={{ display:"flex", gap:"0.5rem", alignItems:"center", flexWrap:"wrap" }}>
                   <RankBadge rank={rank} size="lg" />
+                  {pg.classeData && (
+                    <button className="btn btn-gold" style={{ fontSize:"0.72rem", padding:"0.3rem 0.7rem" }} onClick={() => exportPGPDF(pg)}>📄 PDF</button>
+                  )}
                   <button className="btn btn-danger" style={{ fontSize:"0.72rem", padding:"0.3rem 0.7rem" }} onClick={() => deletePersonaggio(pg.id)}>Elimina</button>
+                </div>
+              </div>
+
+              {/* Stats live per Rank */}
+              {pgStats && (
+                <div style={{ marginTop:"1rem", padding:"0.75rem 1rem", background:"rgba(140,110,255,0.05)", border:"1px solid var(--border)", borderRadius:8 }}>
+                  <div style={{ fontSize:"0.65rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:"0.5rem" }}>
+                    Statistiche al Rank <span style={{ color:getRankColor(rank), fontWeight:700 }}>{rank}</span>
+                    {pg.rankManuale && <span style={{ color:"var(--gold)", marginLeft:"0.5rem" }}>(impostato manualmente)</span>}
+                  </div>
+                  <div style={{ display:"flex", gap:"1rem", flexWrap:"wrap" }}>
+                    {[
+                      {l:"HP",v:pgStats.hp,c:"var(--danger)"},
+                      {l:"Flusso",v:pgStats.fl,c:"var(--flux)"},
+                      {l:"Difesa",v:pgStats.dif,c:"var(--purple)"},
+                      {l:"Velocità",v:pgStats.vel,c:"var(--gold)"},
+                    ].map(s => (
+                      <div key={s.l} style={{ textAlign:"center", minWidth:56 }}>
+                        <div style={{ fontSize:"0.6rem", color:"var(--text-dim)", textTransform:"uppercase" }}>{s.l}</div>
+                        <div style={{ fontFamily:"'Cinzel',serif", fontWeight:900, color:s.c, fontSize:"1.3rem", lineHeight:1 }}>{s.v}</div>
+                      </div>
+                    ))}
+                    {rank === "S" || rank === "SS" || rank === "SSS" ? (
+                      <div style={{ background:"rgba(212,168,67,0.1)", border:"1px solid rgba(212,168,67,0.3)", borderRadius:6, padding:"0.3rem 0.7rem", display:"flex", alignItems:"center" }}>
+                        <span style={{ fontSize:"0.75rem", color:"var(--gold)", fontWeight:700 }}>✦ Frammento Risvegliato — AU sbloccata</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
+              {/* Selettore Rank Manuale */}
+              <div style={{ marginTop:"1rem" }}>
+                <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:"0.4rem" }}>
+                  Livello Rank &nbsp;<span style={{ color:"var(--text-dim)", fontWeight:400 }}>(il Rank segue i PA automaticamente, oppure impostalo a mano)</span>
+                </div>
+                <div style={{ display:"flex", gap:"0.35rem", flexWrap:"wrap" }}>
+                  <button onClick={() => setRankManuale(pg.id, "auto")} style={{
+                    padding:"0.25rem 0.6rem", borderRadius:4, border:`1px solid ${!pg.rankManuale?"var(--purple)":"var(--border)"}`,
+                    background: !pg.rankManuale ? "rgba(140,110,255,0.15)" : "transparent",
+                    color: !pg.rankManuale ? "var(--purple)" : "var(--text-dim)",
+                    cursor:"pointer", fontSize:"0.72rem", fontWeight:600, fontFamily:"'Raleway',sans-serif",
+                  }}>Auto (PA)</button>
+                  {RANKS.map(r => {
+                    const col = getRankColor(r);
+                    const active = pg.rankManuale===r;
+                    return (
+                      <button key={r} onClick={() => setRankManuale(pg.id, r)} style={{
+                        padding:"0.25rem 0.6rem", borderRadius:4, border:`1px solid ${active?col:"var(--border)"}`,
+                        background: active ? `${col}20` : "transparent",
+                        color: active ? col : "var(--text-dim)",
+                        cursor:"pointer", fontSize:"0.75rem", fontWeight:active?900:400, fontFamily:"'Cinzel',sans-serif",
+                        transition:"all 0.15s",
+                      }}>{r}</button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2548,15 +2839,15 @@ function TrackerPage() {
                   </div>
                   <div style={{ textAlign:"right", fontSize:"0.78rem", color:"var(--text-dim)" }}>
                     {nextRankPA ? (
-                      <>Prossimo Rank ({RANKS[RANKS.indexOf(rank)+1]}): {nextRankPA.toLocaleString()} PA<br/>
+                      <>Prossimo Rank ({RANKS[RANKS.indexOf(rankAuto)+1]}): {nextRankPA.toLocaleString()} PA<br/>
                       Mancano: <span style={{ color:"var(--gold)" }}>{(nextRankPA - pg.pa).toLocaleString()} PA</span></>
                     ) : <span style={{ color:"var(--gold)" }}>Rank Massimo Raggiunto</span>}
                   </div>
                 </div>
-                <ProgressBar value={pg.pa - RANK_PA[rank]} max={(nextRankPA||RANK_PA[rank]+1) - RANK_PA[rank]} color={getRankColor(rank)} height={8} />
+                <ProgressBar value={pg.pa - RANK_PA[rankAuto]} max={(nextRankPA||RANK_PA[rankAuto]+1) - RANK_PA[rankAuto]} color={getRankColor(rankAuto)} height={8} />
                 <div style={{ display:"flex", justifyContent:"space-between", marginTop:"0.3rem", fontSize:"0.68rem", color:"var(--text-dim)" }}>
-                  <span>Rank {rank} — {RANK_PA[rank]} PA</span>
-                  {nextRankPA && <span>Rank {RANKS[RANKS.indexOf(rank)+1]} — {nextRankPA} PA</span>}
+                  <span>Rank {rankAuto} — {RANK_PA[rankAuto]} PA</span>
+                  {nextRankPA && <span>Rank {RANKS[RANKS.indexOf(rankAuto)+1]} — {nextRankPA} PA</span>}
                 </div>
               </div>
 
@@ -2668,6 +2959,37 @@ function TrackerPage() {
 // ═══════════════════════════════════════════════════════
 export default function App() {
   const [page, setPage] = useState("home");
+  const [savedAlert, setSavedAlert] = useState(false);
+
+  // Funzione globale per salvare PG dal generatore nel tracker
+  function saveToTracker(generated) {
+    try {
+      const existing = JSON.parse(localStorage.getItem("arcadia_personaggi_v2") || "[]");
+      const np = {
+        id: Date.now(),
+        nome: generated.nome,
+        classe: generated.classe.nome,
+        classeData: generated.classe,
+        frammento: generated.frammento,
+        razza: generated.razza,
+        background: generated.background || "",
+        pa: 0,
+        rankManuale: null, // null = auto da PA
+        skills: generated.classe.skills.map(s => ({ nome: s.nome, ps: 0 })),
+        hp_base: generated.hp,
+        fl_base: generated.fl,
+        dif_base: generated.dif,
+        vel_base: generated.vel,
+        scintille: generated.scintille,
+        fazione: "",
+        note: "",
+        createdAt: new Date().toISOString(),
+      };
+      localStorage.setItem("arcadia_personaggi_v2", JSON.stringify([...existing, np]));
+      setSavedAlert(true);
+      setTimeout(() => setSavedAlert(false), 3000);
+    } catch(e) { alert("Errore nel salvataggio."); }
+  }
 
   const navItems = [
     { id:"home", label:"Home" },
@@ -2679,7 +3001,7 @@ export default function App() {
   const PageComponent = {
     home: () => <HomePage setPage={setPage} />,
     wiki: () => <WikiPage />,
-    generator: () => <GeneratorePage />,
+    generator: () => <GeneratorePage saveToTracker={saveToTracker} setPage={setPage} />,
     tracker: () => <TrackerPage />,
   }[page] || (() => <HomePage setPage={setPage} />);
 
@@ -2699,6 +3021,16 @@ export default function App() {
               ))}
             </div>
           </nav>
+          {savedAlert && (
+            <div style={{
+              position:"fixed", top:72, right:24, zIndex:999,
+              background:"#1a3a1a", border:"1px solid #4ecb71", borderRadius:8,
+              padding:"0.75rem 1.25rem", color:"#4ecb71", fontWeight:700, fontSize:"0.85rem",
+              boxShadow:"0 4px 20px rgba(0,0,0,0.4)", animation:"fade-in 0.3s ease"
+            }}>
+              ✓ Personaggio salvato nel Tracker!
+            </div>
+          )}
           <div className="page">
             <PageComponent />
           </div>
