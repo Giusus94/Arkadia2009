@@ -1956,192 +1956,950 @@ function exportPDF(pg) {
   const c = pg.classe;
   const f = pg.frammento;
   const r = pg.razza;
-  const au = AU_MAP[f.nome];
+  const au = AU_MAP[f?.nome];
   const color = CAT_COLORS[c.cat] || "#534ab7";
 
-  const html = `<!DOCTYPE html><html lang="it"><head>
-<meta charset="UTF-8">
-<title>Scheda — ${pg.nome}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Raleway:wght@400;500;600&display=swap');
+  // ── Pre-calcola tutti i modificatori ──
+  const statVals = { FOR:c.FOR, AGI:c.AGI, RES:c.RES, INT:c.INT, PER:c.PER, CAR:c.CAR };
+  const mod = k => { const m = Math.floor((statVals[k]-10)/2); return (m>=0?"+":"")+m; };
+  const modNum = k => Math.floor((statVals[k]-10)/2);
+  // Stat primaria (più alta)
+  const primStat = Object.entries(statVals).sort((a,b)=>b[1]-a[1])[0][0];
+  // Difesa calcolata
+  const difBase = pg.dif;
+  // Attacco base = 1d20 + mod stat primaria
+  const attMod = modNum(primStat);
+  // DC attacco = Difesa dell'avversario (il giocatore la confronta)
+
+  const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Raleway:ital,wght@0,400;0,600;0,700;1,400&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Raleway',sans-serif;background:#fff;color:#1a1a1a;font-size:9pt;line-height:1.4}
-  @page{size:A4;margin:1.2cm}
-  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  h1{font-family:'Cinzel',serif;font-size:18pt;font-weight:900;color:${color};margin-bottom:2px}
-  h2{font-family:'Cinzel',serif;font-size:10pt;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.08em;margin:10px 0 4px;border-bottom:1px solid ${color}40;padding-bottom:2px}
-  h3{font-family:'Cinzel',serif;font-size:9pt;font-weight:700;color:#333;margin-bottom:2px}
-  .header{background:${color}12;border:1.5px solid ${color};border-radius:6px;padding:12px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start}
-  .header-left .sub{color:#555;font-size:8pt;margin-top:2px}
-  .rank-badge{background:${color};color:#fff;font-family:'Cinzel',serif;font-weight:900;padding:6px 14px;border-radius:4px;font-size:14pt}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
-  .box{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:8px 10px}
-  .box-color{background:${color}0d;border:1px solid ${color}30;border-radius:4px;padding:8px 10px}
-  .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
-  .stat{text-align:center;min-width:52px;background:#eee;border-radius:4px;padding:4px 6px}
-  .stat .label{font-size:6.5pt;color:#777;text-transform:uppercase;letter-spacing:.06em}
-  .stat .val{font-family:'Cinzel',serif;font-weight:900;font-size:13pt;color:${color}}
-  .stat .mod{font-size:7pt;color:#555}
-  .big-stat{text-align:center;background:${color}10;border:1px solid ${color}30;border-radius:4px;padding:6px 10px;min-width:60px}
-  .big-stat .label{font-size:6.5pt;color:#777;text-transform:uppercase}
-  .big-stat .val{font-family:'Cinzel',serif;font-weight:900;font-size:16pt;color:${color}}
-  .skill{border-left:3px solid ${color};padding:6px 8px;margin-bottom:6px;background:#f9f9f9}
-  .skill .name{font-family:'Cinzel',serif;font-weight:700;font-size:9pt}
-  .skill .cost{display:inline-block;background:${color}18;border:1px solid ${color}30;border-radius:3px;padding:1px 6px;font-size:7pt;font-weight:700;color:${color};margin-left:6px}
-  .skill .desc{font-size:8pt;color:#444;margin-top:2px}
-  .lv-row{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
-  .lv{font-size:7pt;background:#eeebff;border-radius:3px;padding:1px 5px;color:#534ab7}
-  .rank-table{width:100%;border-collapse:collapse;font-size:8pt;margin-top:4px}
-  .rank-table th{background:${color};color:#fff;padding:3px 6px;text-align:center;font-weight:700}
-  .rank-table td{padding:3px 6px;text-align:center;border-bottom:1px solid #eee}
-  .rank-table tr:nth-child(even){background:#f5f5f5}
-  .rank-table .rank-s{background:#fef3d0;font-weight:700}
-  .au-box{background:#fef9e7;border:1.5px solid #d4a843;border-radius:6px;padding:10px 12px;margin-top:8px}
-  .au-box .au-title{font-family:'Cinzel',serif;font-weight:700;color:#9a6f0a;font-size:9.5pt;margin-bottom:4px}
-  .trackers{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
-  .tracker-box{border:1px solid #ddd;border-radius:4px;padding:6px 8px}
-  .tracker-box .label{font-size:7pt;color:#777;text-transform:uppercase;margin-bottom:2px}
-  .tracker-box .line{height:24px;border-bottom:1px solid #ccc;margin-top:4px}
-  .note-box{border:1px solid #ddd;border-radius:4px;padding:8px;min-height:60px;margin-top:6px}
-  .fazione-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
-  .fazione-badge{border:1px solid #ccc;border-radius:3px;padding:2px 7px;font-size:7.5pt;color:#555}
-  .ps-table{width:100%;border-collapse:collapse;font-size:8pt}
-  .ps-table th{background:#333;color:#fff;padding:3px 6px;text-align:left}
-  .ps-table td{padding:3px 6px;border-bottom:1px solid #eee}
-  .ps-table tr:nth-child(even){background:#f5f5f5}
-  .page-break{page-break-before:always}
-  .footer{margin-top:10px;text-align:center;font-size:7pt;color:#aaa;border-top:1px solid #eee;padding-top:4px}
-</style>
+  body{font-family:'Raleway',sans-serif;background:#fff;color:#1a1a1a;font-size:8.5pt;line-height:1.45}
+  @page{size:A4;margin:1.1cm 1.2cm}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.no-print{display:none}}
+  .page-break{page-break-before:always;padding-top:6px}
+
+  /* ── TIPOGRAFIA ── */
+  h1{font-family:'Cinzel',serif;font-size:17pt;font-weight:900;color:${color};margin-bottom:1px;line-height:1.1}
+  h2{font-family:'Cinzel',serif;font-size:9.5pt;font-weight:700;color:${color};text-transform:uppercase;
+     letter-spacing:.09em;margin:9px 0 4px;border-bottom:1.5px solid ${color}50;padding-bottom:2px}
+  h3{font-family:'Cinzel',serif;font-size:8.5pt;font-weight:700;color:#222;margin-bottom:2px}
+
+  /* ── LAYOUT ── */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:7px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:7px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px}
+
+  /* ── HEADER ── */
+  .header{background:${color}10;border:1.5px solid ${color};border-radius:6px;
+          padding:10px 14px;margin-bottom:9px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .header-info{flex:1}
+  .header-info .sub{color:#555;font-size:7.5pt;margin-top:3px}
+  .header-info .bg{color:${color};font-size:7.5pt;margin-top:2px;font-style:italic}
+  .rank-badge{background:${color};color:#fff;font-family:'Cinzel',serif;font-weight:900;
+              padding:8px 16px;border-radius:5px;font-size:16pt;text-align:center;white-space:nowrap}
+  .rank-title{font-size:7pt;color:rgba(255,255,255,0.8);display:block;margin-top:1px;text-align:center}
+
+  /* ── STAT BOXES ── */
+  .stat-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:7px}
+  .stat-box{background:#f0eeff;border:1px solid ${color}40;border-radius:5px;padding:5px 4px;text-align:center}
+  .stat-box.primary{background:${color}15;border-color:${color};border-width:1.5px}
+  .stat-lbl{font-size:6pt;color:#666;text-transform:uppercase;letter-spacing:.07em;font-weight:700}
+  .stat-val{font-family:'Cinzel',serif;font-weight:900;font-size:15pt;color:${color};line-height:1.1}
+  .stat-mod{font-size:8pt;color:#333;font-weight:700}
+  .stat-rolls{display:flex;gap:2px;margin-top:3px}
+  .stat-roll-btn{flex:1;background:${color}10;border:1px solid ${color}35;border-radius:3px;
+                  font-size:6pt;font-weight:700;color:${color};padding:1px 0;text-align:center}
+
+  /* ── VITALI ── */
+  .vital-grid{display:grid;grid-template-columns:2fr 2fr 1fr 1fr 1.2fr 1fr;gap:6px;margin-bottom:8px}
+  .vital-box{background:#f7f7f7;border:1px solid #ddd;border-radius:5px;padding:6px 8px}
+  .vital-box.hp{background:#fff5f5;border-color:#e8a0a0}
+  .vital-box.fl{background:#f0fdf9;border-color:#90d4bd}
+  .vital-box.dif{background:#f0eeff;border-color:${color}40}
+  .vital-box.sc{background:#fffbf0;border-color:#d4a843}
+  .vital-lbl{font-size:6pt;color:#888;text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;font-weight:700}
+  .vital-val{font-family:'Cinzel',serif;font-weight:900;font-size:18pt;color:#1a1a1a;line-height:1}
+  .vital-val.hp{color:#c0392b}
+  .vital-val.fl{color:#0f6e56}
+  .vital-val.dif{color:${color}}
+  .vital-val.sc{color:#d4a843}
+  .vital-sub{font-size:6.5pt;color:#999;margin-top:1px}
+  .vital-slash{display:flex;align-items:baseline;gap:2px}
+  .vital-max{font-size:10pt;font-weight:700;color:#aaa}
+  .vital-write{border-bottom:1.5px solid #bbb;min-width:30px;display:inline-block;height:14px;margin-left:2px}
+
+  /* ── COMBATTIMENTO ── */
+  .comb-header{background:${color};color:#fff;font-family:'Cinzel',serif;font-size:10pt;
+               font-weight:900;padding:5px 10px;border-radius:4px 4px 0 0;margin-bottom:0;
+               text-transform:uppercase;letter-spacing:.1em}
+  .comb-block{border:1px solid ${color}40;border-radius:0 0 5px 5px;padding:7px 10px;margin-bottom:8px}
+
+  /* Tiri attacco */
+  .att-table{width:100%;border-collapse:collapse;font-size:8pt;margin-top:3px}
+  .att-table th{background:#333;color:#fff;padding:3px 6px;text-align:center;font-size:7pt;font-weight:700}
+  .att-table td{padding:4px 6px;border-bottom:1px solid #eee;text-align:center}
+  .att-table td:first-child{text-align:left;font-weight:700}
+  .att-table tr:nth-child(even){background:#f8f8f8}
+  .att-table .formula{font-family:monospace;font-size:8pt;color:#444}
+  .att-table .dc-note{font-size:7pt;color:#888;font-style:italic}
+
+  /* Struttura turno */
+  .turn-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px}
+  .turn-box{border:1.5px solid #ddd;border-radius:5px;padding:6px 8px}
+  .turn-box.azione{border-color:${color};background:${color}06}
+  .turn-box.bonus{border-color:#e67e22;background:#fff8f0}
+  .turn-box.reazione{border-color:#27ae60;background:#f0fff4}
+  .turn-label{font-family:'Cinzel',serif;font-size:8pt;font-weight:700;margin-bottom:4px}
+  .turn-label.azione{color:${color}}
+  .turn-label.bonus{color:#e67e22}
+  .turn-label.reazione{color:#27ae60}
+  .turn-item{font-size:7.5pt;color:#444;padding:1px 0;border-bottom:1px solid #eee;display:flex;gap:4px}
+  .turn-item:last-child{border-bottom:none}
+  .turn-item::before{content:"▸";color:#bbb;flex-shrink:0}
+
+  /* Combo */
+  .combo-table{width:100%;border-collapse:collapse;font-size:8pt}
+  .combo-table th{background:#534ab7;color:#fff;padding:3px 8px;text-align:left;font-size:7pt;font-weight:700}
+  .combo-table td{padding:3px 8px;border-bottom:1px solid #eee}
+  .combo-table tr:nth-child(even){background:#f8f8ff}
+
+  /* DC reference */
+  .dc-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-bottom:7px}
+  .dc-box{text-align:center;border:1px solid #ddd;border-radius:4px;padding:4px 3px}
+  .dc-box .dc-val{font-family:'Cinzel',serif;font-weight:900;font-size:11pt;color:#333}
+  .dc-box .dc-lbl{font-size:6pt;color:#888;text-transform:uppercase;letter-spacing:.05em}
+
+  /* Difesa */
+  .dif-calc{background:#f0eeff;border:1.5px solid ${color}50;border-radius:5px;padding:7px 10px;margin-bottom:7px}
+  .dif-formula{font-size:8.5pt;font-weight:700;color:#333;margin-bottom:3px}
+  .dif-formula span{color:${color};font-family:'Cinzel',serif}
+  .dif-note{font-size:7pt;color:#666;line-height:1.5}
+
+  /* Condizioni */
+  .cond-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:7px}
+  .cond-box{border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:7.5pt}
+  .cond-box .cond-name{font-weight:700;color:#333;margin-bottom:1px}
+  .cond-box .cond-desc{color:#777;font-size:7pt;line-height:1.3}
+  .cond-check{width:10px;height:10px;border:1px solid #bbb;display:inline-block;
+              border-radius:2px;margin-right:3px;vertical-align:middle}
+
+  /* Skill combattimento */
+  .skill-comb{border:1px solid #ddd;border-radius:5px;padding:7px 9px;margin-bottom:5px}
+  .skill-comb-header{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+  .skill-comb-nome{font-family:'Cinzel',serif;font-weight:700;font-size:9pt;color:#1a1a1a}
+  .skill-comb-cost{background:${color}15;border:1px solid ${color}30;border-radius:3px;
+                    padding:1px 7px;font-size:7pt;font-weight:700;color:${color}}
+  .skill-comb-type{background:#f0f0f0;border-radius:3px;padding:1px 5px;font-size:7pt;color:#666}
+  .skill-comb-desc{font-size:8pt;color:#333;margin-bottom:3px;line-height:1.4}
+  .skill-lv-row{display:flex;gap:3px;flex-wrap:wrap}
+  .skill-lv-chip{font-size:6.5pt;padding:1px 5px;border-radius:3px;border:1px solid #ccc;color:#555}
+  .skill-lv-chip.lv5{background:#fef3d0;border-color:#d4a843;color:#9a6f0a;font-weight:700}
+  .skill-uses{display:flex;gap:3px;margin-top:3px;align-items:center}
+  .skill-use-box{width:14px;height:14px;border:1.5px solid ${color};border-radius:3px;display:inline-block}
+  .skill-uses-lbl{font-size:7pt;color:#999;margin-left:3px}
+
+  /* TS Mortali */
+  .ts-block{border:1.5px solid #e05050;border-radius:5px;padding:7px 10px;margin-bottom:7px;background:#fff5f5}
+  .ts-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .ts-lbl{font-size:8pt;font-weight:700;min-width:70px}
+  .ts-lbl.s{color:#27ae60}
+  .ts-lbl.f{color:#e05050}
+  .ts-check{width:18px;height:18px;border:2px solid #ccc;border-radius:3px;
+             display:inline-flex;align-items:center;justify-content:center;margin-right:4px}
+  .ts-check.s{border-color:#27ae60}
+  .ts-check.f{border-color:#e05050}
+
+  /* PAGINA 3 TRACKERS */
+  .tracker-full{border:1px solid #ddd;border-radius:5px;padding:8px 10px;margin-bottom:8px}
+  .tracker-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 2fr;gap:6px;align-items:center;
+               padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:8pt}
+  .tracker-row:last-child{border-bottom:none}
+  .tracker-head{font-size:7pt;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;
+                padding:3px 0 5px;border-bottom:1.5px solid #333;display:grid;
+                grid-template-columns:2fr 1fr 1fr 1fr 2fr;gap:6px}
+  .write-line{border-bottom:1.5px solid #bbb;min-width:40px;height:16px;display:block}
+  .ps-bar{height:8px;background:#eee;border-radius:4px;overflow:hidden;position:relative}
+  .ps-bar-fill{height:100%;background:${color};border-radius:4px;width:0%}
+
+  /* Inventario armi */
+  .inv-table{width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:7px}
+  .inv-table th{background:#333;color:#fff;padding:3px 6px;text-align:left;font-size:7pt;font-weight:700}
+  .inv-table td{padding:4px 6px;border-bottom:1px solid #eee}
+  .inv-table tr:nth-child(even){background:#f8f8f8}
+
+  /* PA tracker */
+  .pa-rank-row{display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap}
+  .pa-rank-chip{border:1px solid #ddd;border-radius:4px;padding:4px 8px;text-align:center;flex:1;min-width:50px}
+  .pa-rank-chip .r{font-family:'Cinzel',serif;font-weight:900;font-size:10pt;color:#333}
+  .pa-rank-chip .p{font-size:7pt;color:#888}
+  .pa-rank-chip .w{border-bottom:1.5px solid #bbb;margin-top:4px;height:14px}
+
+  /* Note */
+  .note-box{border:1px solid #ddd;border-radius:4px;padding:7px;min-height:50px;margin-bottom:7px;background:#fafafa}
+  .note-box-lg{min-height:70px}
+  .fazione-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}
+  .faz-row{display:flex;align-items:center;justify-content:space-between;
+           border:1px solid #ddd;border-radius:3px;padding:3px 7px;font-size:8pt}
+  .faz-row span:first-child{color:#555}
+  .faz-write{border-bottom:1.5px solid #bbb;width:40px;height:14px;display:inline-block}
+  .faz-legend{font-size:7pt;color:#999;margin-bottom:6px}
+
+  /* Scintille */
+  .scintilla-orb{width:16px;height:16px;border:1.5px solid #d4a843;border-radius:50%;
+                 display:inline-block;margin-right:3px;vertical-align:middle}
+
+  /* Footer */
+  .footer{margin-top:8px;text-align:center;font-size:7pt;color:#bbb;
+          border-top:1px solid #eee;padding-top:4px}
+`;
+
+  // ── Helper HTML ──
+  const statGrid = `
+<div class="stat-grid">
+${["FOR","AGI","RES","INT","PER","CAR"].map(s=>{
+  const v=statVals[s]; const m=modNum(s); const isPrim=s===primStat;
+  return `<div class="stat-box${isPrim?" primary":""}">
+    <div class="stat-lbl">${s}${isPrim?" ★":""}</div>
+    <div class="stat-val">${v}</div>
+    <div class="stat-mod">${m>=0?"+":""}${m}</div>
+    <div class="stat-rolls">
+      <div class="stat-roll-btn">🎲 ATT</div>
+      <div class="stat-roll-btn">🛡 TS</div>
+    </div>
+  </div>`;
+}).join("")}
+</div>`;
+
+  const vitalGrid = `
+<div class="vital-grid">
+  <div class="vital-box hp">
+    <div class="vital-lbl">HP Correnti / Max</div>
+    <div class="vital-slash">
+      <div class="vital-val hp"><span class="vital-write"></span></div>
+      <div class="vital-max">/${pg.hp}</div>
+    </div>
+    <div class="vital-sub">Rank F base. Vedi tabella Rank →</div>
+  </div>
+  <div class="vital-box fl">
+    <div class="vital-lbl">Flusso Corrente / Max</div>
+    <div class="vital-slash">
+      <div class="vital-val fl"><span class="vital-write"></span></div>
+      <div class="vital-max">/${pg.fl}</div>
+    </div>
+    <div class="vital-sub">Si recupera a fine scontro/riposo</div>
+  </div>
+  <div class="vital-box dif">
+    <div class="vital-lbl">Difesa</div>
+    <div class="vital-val dif">${pg.dif}</div>
+    <div class="vital-sub">Rank F — vedere calcolo</div>
+  </div>
+  <div class="vital-box">
+    <div class="vital-lbl">Velocità</div>
+    <div class="vital-val">${pg.vel}</div>
+    <div class="vital-sub">m per turno</div>
+  </div>
+  <div class="vital-box sc">
+    <div class="vital-lbl">Scintille ✦</div>
+    <div class="vital-slash">
+      <div class="vital-val sc"><span class="vital-write"></span></div>
+      <div class="vital-max">/ 10</div>
+    </div>
+    <div class="vital-sub">Base: ${pg.scintille}</div>
+  </div>
+  <div class="vital-box">
+    <div class="vital-lbl">Dado Vita</div>
+    <div class="vital-val" style="font-size:14pt">${c.dado}</div>
+    <div class="vital-sub">Tiro vita</div>
+  </div>
+</div>`;
+
+  const difCalc = `
+<div class="dif-calc">
+  <div class="dif-formula">Difesa = <span>10 + mod(AGI)</span> + bonus Rank + bonus armatura + bonus razza</div>
+  <div class="dif-note">
+    mod(AGI) attuale: <b>${mod("AGI")}</b> &nbsp;|&nbsp;
+    Base Rank F: <b>${pg.dif}</b> &nbsp;|&nbsp;
+    Rank D+C: +1 &nbsp;|&nbsp; Rank B+A: +2 &nbsp;|&nbsp; Rank S: +3 &nbsp;|&nbsp; Rank SS: +4 &nbsp;|&nbsp; Rank SSS: +5<br>
+    <i>Formula tiro attacco su di te:</i> &nbsp; L'attaccante tira 1d20 + suo mod stat. Se supera la tua Difesa (${pg.dif}) → ti colpisce.
+    Nat20 = critico sempre. Nat1 = fallimento critico sempre.
+  </div>
+</div>`;
+
+  const attTable = `
+<table class="att-table">
+  <tr>
+    <th>Tipo di Attacco</th><th>Formula Tiro</th><th>Risultato necessario</th><th>Danno base</th><th>Note</th>
+  </tr>
+  <tr>
+    <td>Attacco Fisico (FOR)</td>
+    <td class="formula">1d20 + ${mod("FOR")}</td>
+    <td>Supera Difesa nemica</td>
+    <td>${c.dado} + ${mod("FOR")}</td>
+    <td>Attacco melee standard</td>
+  </tr>
+  <tr>
+    <td>Attacco Agile (AGI)</td>
+    <td class="formula">1d20 + ${mod("AGI")}</td>
+    <td>Supera Difesa nemica</td>
+    <td>1d6 + ${mod("AGI")}</td>
+    <td>Attacco veloce / furtivo</td>
+  </tr>
+  <tr>
+    <td>Attacco Magico (INT)</td>
+    <td class="formula">1d20 + ${mod("INT")}</td>
+    <td>Supera Difesa o DC nemica</td>
+    <td>2d6 + ${mod("INT")}</td>
+    <td>Skill magiche / Flusso</td>
+  </tr>
+  <tr>
+    <td>Attacco Percezione (PER)</td>
+    <td class="formula">1d20 + ${mod("PER")}</td>
+    <td>Supera Difesa nemica</td>
+    <td>1d8 + ${mod("PER")}</td>
+    <td>Tracker / analisi preda</td>
+  </tr>
+  <tr>
+    <td>Vantaggio</td>
+    <td class="formula">2d20 → prende il più alto</td>
+    <td>—</td>
+    <td>—</td>
+    <td>Quando hai posizione favorevole</td>
+  </tr>
+  <tr>
+    <td>Svantaggio</td>
+    <td class="formula">2d20 → prende il più basso</td>
+    <td>—</td>
+    <td>—</td>
+    <td>Condizione avversa o cecità</td>
+  </tr>
+  <tr style="background:#fef3d0;font-weight:700">
+    <td>⚡ Critico (Nat 20)</td>
+    <td class="formula">Nat 20 = critico auto</td>
+    <td>Colpisce sempre</td>
+    <td>Danno × 2</td>
+    <td>Indipendente dalla Difesa</td>
+  </tr>
+  <tr style="background:#fff5f5">
+    <td>💀 Fumble (Nat 1)</td>
+    <td class="formula">Nat 1 = fumble auto</td>
+    <td>Manca sempre</td>
+    <td>—</td>
+    <td>GM applica effetto negativo</td>
+  </tr>
+</table>`;
+
+  const dcRef = `
+<div class="dc-grid">
+  ${[["5","Triviale"],["8","Facile"],["12","Normale"],["16","Difficile"],["20","Epico"],["25+","Leggendario"]].map(([v,l])=>
+    `<div class="dc-box"><div class="dc-val">${v}</div><div class="dc-lbl">${l}</div></div>`
+  ).join("")}
+</div>
+<div style="font-size:7.5pt;color:#666;margin-bottom:7px">
+  La DC è stabilita dal GM. Il giocatore tira 1d20 + modificatore rilevante. Se il totale ≥ DC → successo pieno. Se uguale alla DC → successo parziale. Se inferiore → fallimento.
+</div>`;
+
+  const turnGrid = `
+<div class="turn-grid">
+  <div class="turn-box azione">
+    <div class="turn-label azione">⚔️ Azione Principale</div>
+    <div class="turn-item">Attaccare (1 bersaglio)</div>
+    <div class="turn-item">Usare una Skill (>1 Flusso)</div>
+    <div class="turn-item">Spostarti fino a Vel. m</div>
+    <div class="turn-item">Interagire con oggetto</div>
+    <div class="turn-item">Aiutare alleato (Vantaggio)</div>
+    <div class="turn-item">Usare consumabile</div>
+  </div>
+  <div class="turn-box bonus">
+    <div class="turn-label bonus">⚡ Azione Bonus</div>
+    <div class="turn-item">Skill con tag A.Bonus</div>
+    <div class="turn-item">Sfida / Passo d'Ombra</div>
+    <div class="turn-item">Tracciamento Arcano</div>
+    <div class="turn-item">Totem / Evoca (alcune classi)</div>
+    <div class="turn-item">Meditazione in Battaglia</div>
+    <div class="turn-item">Solo 1 per turno</div>
+  </div>
+  <div class="turn-box reazione">
+    <div class="turn-label reazione">🛡️ Reazione</div>
+    <div class="turn-item">Scudo dell'Anima (Guardiano)</div>
+    <div class="turn-item">Passo del Vento (Danzatore)</div>
+    <div class="turn-item">Fortezza (Campione Pietra)</div>
+    <div class="turn-item">Inversione Momento (Maestro)</div>
+    <div class="turn-item">Scudo Arcano (Mago)</div>
+    <div class="turn-item">Solo 1 per round</div>
+  </div>
+</div>`;
+
+  const comboTable = `
+<table class="combo-table">
+  <tr><th>N° Attacco nel round</th><th>Bonus al danno</th><th>Effetto speciale</th></tr>
+  <tr><td>1° attacco</td><td>Nessun bonus combo</td><td>—</td></tr>
+  <tr><td>2° attacco</td><td>+1d4 danni</td><td>—</td></tr>
+  <tr><td>3° attacco</td><td>+2d4 danni</td><td>Se mancavi di ≤2 → conta come critico</td></tr>
+  <tr><td>4° attacco e oltre</td><td>Danno × 2</td><td>—</td></tr>
+</table>
+<div style="font-size:7pt;color:#666;margin-top:3px">Il sistema Combo conta gli attacchi consecutivi nello stesso scontro. Si azzera se salti un turno senza attaccare.</div>`;
+
+  const skillComb = c.skills.map(sk=>`
+<div class="skill-comb">
+  <div class="skill-comb-header">
+    <span class="skill-comb-nome">${sk.nome}</span>
+    <span class="skill-comb-cost">${sk.costo} Flusso</span>
+    <span class="skill-comb-type">${sk.costo==="0"?"Libera":sk.costo.includes("Bonus")||sk.costo.includes("✦")?"Varia":"Azione"}</span>
+  </div>
+  <div class="skill-comb-desc">${sk.desc}</div>
+  <div class="skill-lv-row">
+    <span class="skill-lv-chip">Lv2: ${sk.lv2}</span>
+    <span class="skill-lv-chip">Lv3: ${sk.lv3}</span>
+    <span class="skill-lv-chip">Lv4: ${sk.lv4}</span>
+    <span class="skill-lv-chip lv5">✦ Lv5: ${sk.lv5}</span>
+  </div>
+  <div class="skill-uses">
+    <span class="skill-use-box"></span>
+    <span class="skill-use-box"></span>
+    <span class="skill-use-box"></span>
+    <span class="skill-uses-lbl">Usi per sessione (segna con ✓)</span>
+  </div>
+</div>`).join("");
+
+  const condizioni = [
+    ["Avvelenato","–1 a tutti i tiri ogni turno"],
+    ["Stordito","Salta il prossimo turno"],
+    ["Spaventato","Svantaggio su attacchi"],
+    ["Rallentato","Vel/2, –1 azione/turno"],
+    ["Prono","Melee vs te: Vantaggio. Distanza: Svantaggio"],
+    ["Immobilizzato","Non può muoversi"],
+    ["Sanguinante","–1d4 HP a inizio turno"],
+    ["Silenziato","No Skill per N turni"],
+    ["Benedetto","+1d4 al prossimo tiro"],
+    ["Concentrato","+2 al prossimo attacco"],
+    ["Paralizzato","Nessuna azione o movimento"],
+    ["Accecato","Svantaggio su attacchi a distanza"],
+  ];
+
+  const condGrid = `
+<div class="cond-grid">
+${condizioni.map(([n,d])=>`
+  <div class="cond-box">
+    <div class="cond-name"><span class="cond-check"></span>${n}</div>
+    <div class="cond-desc">${d}</div>
+  </div>`).join("")}
+</div>`;
+
+  const tsMortali = `
+<div class="ts-block">
+  <div style="font-family:'Cinzel',serif;font-weight:700;font-size:9pt;color:#c0392b;margin-bottom:5px">⚠️ Tiri Salvezza Mortali — A 0 HP</div>
+  <div style="font-size:8pt;color:#555;margin-bottom:6px">
+    Ogni turno a 0 HP: tira 1d20. &nbsp;<b>10+ = Successo</b> (3 successi = stabile) &nbsp;|&nbsp;
+    <b>&lt;10 = Fallimento</b> (3 fallimenti = morte) &nbsp;|&nbsp; <b>Nat 20</b> = recuperi 1 HP &nbsp;|&nbsp; <b>Nat 1</b> = 2 fallimenti
+  </div>
+  <div class="ts-row">
+    <span class="ts-lbl s">✓ Successi</span>
+    <span class="ts-check s"></span><span class="ts-check s"></span><span class="ts-check s"></span>
+    <span style="margin-left:16px"></span>
+    <span class="ts-lbl f">✗ Fallimenti</span>
+    <span class="ts-check f"></span><span class="ts-check f"></span><span class="ts-check f"></span>
+  </div>
+</div>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="it"><head>
+<meta charset="UTF-8">
+<title>${pg.nome} — Chaos System Arkadia2099</title>
+<style>${CSS}</style>
 </head><body>
 
-<!-- INTESTAZIONE -->
+<!-- ══ PAGINA 1 — IDENTITÀ & STATISTICHE ══ -->
+
 <div class="header">
-  <div class="header-left">
+  <div class="header-info">
     <h1>${pg.nome}</h1>
-    <div class="sub">${c.icon} ${c.nome} &nbsp;·&nbsp; ${r.nome} &nbsp;·&nbsp; Rank F — ${RANK_TITOLI["F"]}</div>
-    ${pg.background ? `<div class="sub" style="color:#8a6f00;margin-top:2px">Background: ${pg.background}</div>` : ""}
+    <div class="sub">${c.icon} <b>${c.nome}</b> &nbsp;·&nbsp; ${r.nome} &nbsp;·&nbsp; Frammento: ${f?.nome || "—"}</div>
+    ${pg.background ? `<div class="bg">Background: ${pg.background}</div>` : ""}
   </div>
-  <div class="rank-badge">F</div>
+  <div class="rank-badge">F<span class="rank-title">${RANK_TITOLI["F"]}</span></div>
 </div>
 
-<!-- STATISTICHE PRINCIPALI -->
+<h2>Caratteristiche & Modificatori</h2>
+${statGrid}
+
 <div class="grid2">
   <div>
-    <h2>Caratteristiche</h2>
-    <div class="stat-row">
-      ${["FOR","AGI","RES","INT","PER","CAR"].map((s,i)=>{
-        const vals=[c.FOR,c.AGI,c.RES,c.INT,c.PER,c.CAR];
-        const v=vals[i]; const m=Math.floor((v-10)/2);
-        return `<div class="stat"><div class="label">${s}</div><div class="val">${v}</div><div class="mod">${m>=0?"+":""}${m}</div></div>`;
+    <h2>Statistiche Vitali — Rank F</h2>
+    ${vitalGrid}
+    <h2>Calcolo Difesa</h2>
+    ${difCalc}
+  </div>
+  <div>
+    <h2>Progressione Rank</h2>
+    <table class="att-table" style="margin-bottom:0">
+      <tr><th>Rank</th><th>PA</th><th>HP</th><th>Flusso</th><th>Difesa</th></tr>
+      ${RANKS.map(rk=>{
+        const isS=["S","SS","SSS"].includes(rk);
+        return `<tr${isS?' style="background:#fef3d0;font-weight:700"':''}>
+          <td><b>${rk}</b></td>
+          <td>${RANK_PA[rk]}</td>
+          <td>${Math.round(pg.hp*RANK_MHP[rk])}</td>
+          <td>${Math.round(pg.fl*RANK_MFL[rk])}</td>
+          <td>${pg.dif+RANK_BDIF[rk]}</td>
+        </tr>`;
       }).join("")}
-    </div>
-    <h2>Statistiche Rank F</h2>
-    <div class="stat-row">
-      <div class="big-stat"><div class="label">HP</div><div class="val">${pg.hp}</div></div>
-      <div class="big-stat"><div class="label">Flusso</div><div class="val">${pg.fl}</div></div>
-      <div class="big-stat"><div class="label">Difesa</div><div class="val">${pg.dif}</div></div>
-      <div class="big-stat"><div class="label">Velocità</div><div class="val">${pg.vel}</div></div>
-      <div class="big-stat"><div class="label">Scintille</div><div class="val">${pg.scintille}</div></div>
-      <div class="big-stat"><div class="label">Dado</div><div class="val" style="font-size:11pt">${c.dado}</div></div>
+    </table>
+    <div style="font-size:7pt;color:#888;margin-top:4px">★ = Stat primaria &nbsp;|&nbsp; Rank S: Frammento si RISVEGLIA</div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>Razza — ${r.nome}</h2>
+    <div class="skill-comb" style="border-color:${color}40;background:${color}06">
+      <div style="font-weight:700;color:#8a6f00;margin-bottom:3px;font-size:8.5pt">${r.bonus}</div>
+      <div style="font-size:8pt;margin-bottom:2px"><b>Tratto 1:</b> ${r.tratto1}</div>
+      <div style="font-size:8pt;margin-bottom:2px"><b>Tratto 2:</b> ${r.tratto2}</div>
+      <div style="font-size:7.5pt;color:#c0392b">Malus: ${r.malus}</div>
     </div>
   </div>
   <div>
-    <h2>Progressione Rank (PA)</h2>
-    <table class="rank-table">
-      <tr><th>Rank</th><th>Titolo</th><th>PA</th><th>HP</th><th>Flusso</th><th>Dif</th></tr>
-      ${RANKS.map(rk=>{
-        const isS=["S","SS","SSS"].includes(rk);
-        const hp=Math.round(pg.hp*RANK_MHP[rk]);
-        const fl=Math.round(pg.fl*RANK_MFL[rk]);
-        const dif=pg.dif+RANK_BDIF[rk];
-        return `<tr${isS?' class="rank-s"':''}><td><b>${rk}</b></td><td style="font-size:7pt">${RANK_TITOLI[rk]}</td><td>${RANK_PA[rk]}</td><td>${hp}</td><td>${fl}</td><td>${dif}</td></tr>`;
-      }).join("")}
+    <h2>Frammento del Creatore</h2>
+    <div class="skill-comb" style="border-color:#d4a843;background:#fffbf0">
+      <div style="font-family:'Cinzel',serif;font-weight:700;font-size:9pt;margin-bottom:2px">${f?.nome}</div>
+      <div style="font-size:7.5pt;color:#9a6f0a;margin-bottom:3px">${f?.fonte}</div>
+      <div style="font-style:italic;color:#888;font-size:7.5pt;margin-bottom:3px">"${f?.flavor}"</div>
+      <div style="font-size:8pt">${f?.mec}</div>
+    </div>
+    ${au ? `<div style="background:#fef9e7;border:1px solid #d4a843;border-radius:4px;padding:5px 8px;margin-top:4px">
+      <div style="font-size:7pt;color:#9a6f0a;font-weight:700;text-transform:uppercase;margin-bottom:2px">✦ AU — sblocco Rank S</div>
+      <div style="font-family:'Cinzel',serif;font-weight:700;font-size:8.5pt;color:#8a6f00;margin-bottom:2px">${au.nome}</div>
+      <div style="font-size:8pt">${au.desc}</div>
+    </div>` : ""}
+  </div>
+</div>
+
+<div class="footer">Chaos System Arkadia2099 v7 · Pagina 1/3 · ${pg.nome}</div>
+
+<!-- ══ PAGINA 2 — COMBATTIMENTO ══ -->
+<div class="page-break">
+
+<div class="header" style="padding:8px 14px;margin-bottom:8px">
+  <div class="header-info">
+    <h1 style="font-size:14pt">${pg.nome} — Scheda Combattimento</h1>
+    <div class="sub">${c.icon} <b>${c.nome}</b> &nbsp;·&nbsp; Rank F &nbsp;·&nbsp; Stat Primaria: <b>${primStat} ${mod(primStat)}</b> &nbsp;·&nbsp; Dado vita: ${c.dado}</div>
+  </div>
+  <div class="rank-badge" style="font-size:12pt;padding:6px 12px">F<span class="rank-title">${RANK_TITOLI["F"]}</span></div>
+</div>
+
+<!-- ── RIEPILOGO COMBAT STATS ── -->
+<div class="comb-header">⚔ Statistiche di Combattimento — Rank F (pre-calcolate)</div>
+<div class="comb-block" style="margin-bottom:9px">
+  <table class="att-table" style="margin-bottom:0">
+    <tr>
+      <th>Statistica</th><th>Formula</th><th>Valore Rank F</th><th>Rank C</th><th>Rank S</th><th>Note</th>
+    </tr>
+    <tr>
+      <td><b>HP Massimi</b></td>
+      <td class="formula">hp_base × moltiplicatore</td>
+      <td style="color:#c0392b;font-weight:900;font-size:11pt">${pg.hp}</td>
+      <td style="color:#c0392b;font-weight:700">${Math.round(pg.hp*RANK_MHP["C"])}</td>
+      <td style="color:#c0392b;font-weight:700">${Math.round(pg.hp*RANK_MHP["S"])}</td>
+      <td>Base razza già inclusa</td>
+    </tr>
+    <tr>
+      <td><b>Flusso Massimo</b></td>
+      <td class="formula">fl_base × moltiplicatore</td>
+      <td style="color:#0f6e56;font-weight:900;font-size:11pt">${pg.fl}</td>
+      <td style="color:#0f6e56;font-weight:700">${Math.round(pg.fl*RANK_MFL["C"])}</td>
+      <td style="color:#0f6e56;font-weight:700">${Math.round(pg.fl*RANK_MFL["S"])}</td>
+      <td>Si spende per le Skill</td>
+    </tr>
+    <tr style="background:#f0eeff">
+      <td><b>Difesa</b></td>
+      <td class="formula">10 + mod(AGI ${mod("AGI")}) + bonus Rank</td>
+      <td style="color:${color};font-weight:900;font-size:11pt">${pg.dif}</td>
+      <td style="color:${color};font-weight:700">${pg.dif+RANK_BDIF["C"]}</td>
+      <td style="color:${color};font-weight:700">${pg.dif+RANK_BDIF["S"]}</td>
+      <td>L'attaccante deve superarlo</td>
+    </tr>
+    <tr>
+      <td><b>Velocità</b></td>
+      <td class="formula">valore classe ${r.nome==="Nano del Sogno"?"–1 (Nano)":""}</td>
+      <td style="font-weight:900;font-size:11pt">${pg.vel}m</td>
+      <td style="font-weight:700">${pg.vel}m</td>
+      <td style="font-weight:700">${pg.vel}m</td>
+      <td>Metri per turno (Azione Principale)</td>
+    </tr>
+    <tr>
+      <td><b>Iniziativa</b></td>
+      <td class="formula">1d20 + mod(AGI ${mod("AGI")})</td>
+      <td colspan="3" class="formula">1d20 ${mod("AGI")} — più alto va prima</td>
+      <td>Tiro a inizio scontro</td>
+    </tr>
+    <tr>
+      <td><b>Scintille base</b></td>
+      <td class="formula">3 + bonus razza</td>
+      <td style="color:#d4a843;font-weight:900;font-size:11pt">${pg.scintille}</td>
+      <td style="color:#d4a843;font-weight:700">${pg.scintille+1}</td>
+      <td style="color:#d4a843;font-weight:700">${pg.scintille+1}</td>
+      <td>Max 10. Guadagnate con roleplay</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ── CALCOLI DETTAGLIATI ── -->
+<div class="grid2" style="margin-bottom:8px">
+
+  <!-- Colonna sinistra: Difesa e Tiri Attacco -->
+  <div>
+    <h2>Calcolo Difesa Completo</h2>
+    <div class="dif-calc" style="margin-bottom:6px">
+      <div class="dif-formula">
+        Difesa = <span>10</span> + <span>mod(AGI)</span> + <span>bonus Rank</span> + <span>bonus armatura</span>
+      </div>
+      <table class="att-table" style="margin:5px 0">
+        <tr><th>Componente</th><th>Valore</th><th>Come cambia</th></tr>
+        <tr><td>Base fissa</td><td>10</td><td>Sempre 10</td></tr>
+        <tr><td>mod(AGI) — tua AGI è ${statVals["AGI"]}</td><td><b>${mod("AGI")}</b></td><td>Cambia con la stat</td></tr>
+        <tr><td>Bonus Rank F/E</td><td>+0</td><td style="font-size:7pt">D/C=+1 · B/A=+2 · S=+3 · SS=+4 · SSS=+5</td></tr>
+        <tr><td>Bonus armatura</td><td>+?</td><td>Dipende dall'equipaggiamento</td></tr>
+        <tr style="background:#f0eeff;font-weight:900"><td>DIFESA TOTALE Rank F</td><td style="color:${color};font-size:11pt">${pg.dif}</td><td>Senza armatura aggiuntiva</td></tr>
+      </table>
+      <div class="dif-note" style="margin-top:3px">
+        <b>Come funziona:</b> Il nemico tira 1d20 + suo modificatore attacco.<br>
+        Se il totale <b>supera</b> la tua Difesa (${pg.dif}) → ti colpisce.<br>
+        Se è <b>uguale</b> alla tua Difesa → ti colpisce (pareggio = colpo).<br>
+        Se è <b>inferiore</b> → manca.<br>
+        <b>Nat 20 = critico (colpisce sempre, danno ×2).</b> &nbsp; <b>Nat 1 = fumble (manca sempre).</b>
+      </div>
+    </div>
+
+    <h2>Tiri Attacco — Tutte le Formule</h2>
+    <table class="att-table">
+      <tr>
+        <th>Tipo attacco</th><th>Tiro colpire</th><th>Danno</th><th>vs</th>
+      </tr>
+      <tr>
+        <td><b>Fisico (FOR)</b></td>
+        <td class="formula">1d20 ${mod("FOR")}</td>
+        <td class="formula">${c.dado} ${mod("FOR")}</td>
+        <td>Difesa nemica</td>
+      </tr>
+      <tr>
+        <td><b>Agile (AGI)</b></td>
+        <td class="formula">1d20 ${mod("AGI")}</td>
+        <td class="formula">1d6 ${mod("AGI")}</td>
+        <td>Difesa nemica</td>
+      </tr>
+      <tr>
+        <td><b>Magico (INT)</b></td>
+        <td class="formula">1d20 ${mod("INT")}</td>
+        <td class="formula">2d6 ${mod("INT")}</td>
+        <td>Difesa / DC nemica</td>
+      </tr>
+      <tr>
+        <td><b>Percezione (PER)</b></td>
+        <td class="formula">1d20 ${mod("PER")}</td>
+        <td class="formula">1d8 ${mod("PER")}</td>
+        <td>Difesa nemica</td>
+      </tr>
+      <tr style="background:#f5fff5">
+        <td><b>Vantaggio</b></td>
+        <td class="formula">2d20 → alto ${mod(primStat)}</td>
+        <td>—</td>
+        <td>Situazione favorevole</td>
+      </tr>
+      <tr style="background:#fff5f5">
+        <td><b>Svantaggio</b></td>
+        <td class="formula">2d20 → basso ${mod(primStat)}</td>
+        <td>—</td>
+        <td>Condizione avversa</td>
+      </tr>
+      <tr style="background:#fef3d0;font-weight:700">
+        <td>⚡ CRITICO (Nat 20)</td>
+        <td>Colpisce sempre</td>
+        <td>Danno × 2</td>
+        <td>Sempre, anche se Difesa alta</td>
+      </tr>
+      <tr style="background:#fff5f5">
+        <td>💀 FUMBLE (Nat 1)</td>
+        <td>Manca sempre</td>
+        <td>—</td>
+        <td>GM applica effetto negativo</td>
+      </tr>
+    </table>
+
+    <h2 style="margin-top:7px">DC di Riferimento (Tiri Salvezza & Skill)</h2>
+    ${dcRef}
+    <div style="font-size:7.5pt;color:#555;margin-bottom:6px">
+      <b>Successo parziale (uguale DC):</b> ottieni l'effetto ma con conseguenza negativa.<br>
+      <b>Tiri Salvezza:</b> 1d20 + modificatore caratteristica indicata. Superare la DC = resistenza.
+    </div>
+
+    <h2>Tiri per Caratteristica — Riepilogo</h2>
+    <table class="att-table" style="margin-bottom:0">
+      <tr><th>Caratteristica</th><th>Valore</th><th>Mod</th><th>Tiro ATT / TS</th><th>Uso tipico</th></tr>
+      ${["FOR","AGI","RES","INT","PER","CAR"].map(s=>`
+      <tr${s===primStat?' style="background:${color}08;font-weight:700"':''}>
+        <td>${s}${s===primStat?" ★":""}</td>
+        <td style="text-align:center;font-family:'Cinzel',serif;font-weight:900;font-size:11pt">${statVals[s]}</td>
+        <td style="text-align:center;font-weight:700;color:${color}">${mod(s)}</td>
+        <td class="formula">1d20 ${mod(s)}</td>
+        <td style="font-size:7pt">${{
+          FOR:"Attacchi fisici, forza bruta, sollevare",
+          AGI:"Schivata, furtività, attacchi veloci, Difesa",
+          RES:"Tiri salvezza fisici, resistere condizioni",
+          INT:"Magia, conoscenza, abilità magiche",
+          PER:"Tracciare, percepire, analisi preda",
+          CAR:"Persuasione, intimidazione, abilità bardo"
+        }[s]}</td>
+      </tr>`).join("")}
+    </table>
+  </div>
+
+  <!-- Colonna destra: Turno, Combo, TS Mortali, Condizioni -->
+  <div>
+    <h2>Struttura del Turno</h2>
+    ${turnGrid}
+    <div style="font-size:7.5pt;color:#555;margin-bottom:7px;padding:4px 6px;background:#f9f9f9;border-radius:4px;border-left:3px solid ${color}">
+      <b>Ordine di risoluzione:</b> Dichiari l'azione → Tiri (se serve) → Applichi effetti → Passa al prossimo.<br>
+      Il movimento può essere spezzato (es: muoviti 3m, attacca, muoviti altri 3m).
+    </div>
+
+    <h2>Azioni Bonus — Elenco Completo</h2>
+    <table class="att-table" style="margin-bottom:7px">
+      <tr><th>Azione Bonus</th><th>Chi può</th><th>Effetto</th></tr>
+      <tr><td>Sfida del Guerriero</td><td>Guerriero HC, Campione</td><td>Bersaglio: Svantaggio vs altri</td></tr>
+      <tr><td>Passo d'Ombra</td><td>Assassino</td><td>Stealth assoluto, prossimo ATT = critico</td></tr>
+      <tr><td>Grido di Guerra</td><td>Berserker</td><td>Alleati +1-2 danni 2t</td></tr>
+      <tr><td>Aura Protettiva</td><td>Paladino del Sogno</td><td>Alleati +1 Difesa 3t</td></tr>
+      <tr><td>Imposizione delle Mani</td><td>Paladino del Sogno</td><td>Cura alleato adiacente</td></tr>
+      <tr><td>Passo Dimensionale</td><td>Ombra del Vento</td><td>Teletrasporto 8m</td></tr>
+      <tr><td>Marcatura</td><td>Ranger del Sogno</td><td>Vantaggio ATT 3t</td></tr>
+      <tr><td>Velo d'Ombra</td><td>Ombra del Vento</td><td>Campo oscuro, Svantaggio vs te</td></tr>
+      <tr><td>Bolla Temporale</td><td>Maestro del Tempo</td><td>Alleato: turno extra</td></tr>
+      <tr><td>Meditazione in Battaglia</td><td>Monaco</td><td>Recupera 2d6+1 HP</td></tr>
+      <tr><td>Totem Curativo</td><td>Sciamano</td><td>Piazza totem curativo</td></tr>
+      <tr><td>Aura di Tenebra</td><td>Cavaliere Oscuro</td><td>Aura 3m, nemici –2 tiri</td></tr>
+      <tr><td>Ballata Ispiratrice</td><td>Bardo del Sogno</td><td>Alleato: Vantaggio su tutto</td></tr>
+    </table>
+
+    <h2>Sistema Combo</h2>
+    ${comboTable}
+
+    <h2 style="margin-top:7px">Tiri Salvezza Mortali (a 0 HP)</h2>
+    ${tsMortali}
+
+    <h2 style="margin-top:7px">Reazioni disponibili</h2>
+    <table class="att-table" style="margin-bottom:0">
+      <tr><th>Reazione</th><th>Chi</th><th>Quando</th><th>Effetto</th></tr>
+      <tr><td>Scudo dell'Anima</td><td>Guardiano</td><td>Alleato colpito</td><td>Ricevi tu, dimezzato</td></tr>
+      <tr><td>Passo del Vento</td><td>Danzatore Lame</td><td>Quando colpito</td><td>Schiva: Vantaggio prossimo ATT</td></tr>
+      <tr><td>Fortezza</td><td>Campione Pietra</td><td>Quando colpito</td><td>Dimezza un attacco</td></tr>
+      <tr><td>Scudo Arcano</td><td>Mago Caos</td><td>Quando colpito</td><td>Assorbe 1d8+3 danni</td></tr>
+      <tr><td>Contrattacco Fluido</td><td>Danzatore Lame</td><td>Nemico ti manca</td><td>1d6+2 automatici (passivo)</td></tr>
+      <tr><td>Rinascita nel Sangue</td><td>Araldo della Fine</td><td>A 0 HP</td><td>Sopravvivi con 1 HP</td></tr>
+      <tr><td>Inversione del Momento</td><td>Maestro del Tempo</td><td>Alleato danneggiato</td><td>Sospendi il danno</td></tr>
     </table>
   </div>
 </div>
 
-<!-- RAZZA -->
-<h2>Razza — ${r.nome}</h2>
-<div class="box-color">
-  <div style="font-weight:700;color:#8a6f00;margin-bottom:3px">${r.bonus}</div>
-  <div style="font-size:8pt;margin-bottom:2px"><b>Tratto 1:</b> ${r.tratto1}</div>
-  <div style="font-size:8pt"><b>Tratto 2:</b> ${r.tratto2}</div>
-  <div style="font-size:7.5pt;color:#c0392b;margin-top:3px">Malus: ${r.malus}</div>
+<!-- ── CONDIZIONI ── -->
+<h2>Condizioni di Stato</h2>
+<div class="cond-grid">
+${[
+  ["☠️ Avvelenato","–1 a TUTTI i tiri per ogni turno in cui è attiva","Cura: fine scontro / antidoto"],
+  ["⭐ Stordito","Salta il prossimo turno intero","Cura: automatica al turno successivo"],
+  ["👁️ Spaventato","Svantaggio su attacchi e azioni vs fonte paura","Cura: CAR DC / fine scontro"],
+  ["🐢 Rallentato","Velocità /2, solo 1 azione per turno","Cura: dipende dall'effetto"],
+  ["⬇️ Prono","Melee vs te: Vantaggio. Dist: Svantaggio. Alzarsi = metà movimento","Cura: usa metà movimento per alzarti"],
+  ["⛓️ Immobilizzato","Non può muoversi ma può agire normalmente","Cura: RES / AGI DC (vedi fonte)"],
+  ["🩸 Sanguinante","–1d4 HP automatici a inizio di ogni tuo turno","Cura: benda (Azione) / cura alleato"],
+  ["🔇 Silenziato","Impossibile usare Skill per N turni indicati","Cura: fine durata / abilità specifica"],
+  ["✨ Benedetto","+1d4 al prossimo tiro (poi rimosso)","Usa: speso automaticamente"],
+  ["🎯 Concentrato","+2 al prossimo attacco (poi rimosso)","Usa: speso automaticamente"],
+  ["💀 Paralizzato","Nessuna azione, nessun movimento","Cura: fine durata / magia"],
+  ["🌑 Corrotto","Rank superiore ha effetti potenziati su di te","Cura: rito del Flusso"],
+].map(([n,d,c])=>`
+  <div class="cond-box">
+    <div class="cond-name"><span class="cond-check"></span>${n}</div>
+    <div class="cond-desc">${d}</div>
+    <div class="cond-desc" style="color:#9a6f0a;margin-top:1px">${c}</div>
+  </div>`).join("")}
 </div>
 
-<!-- SKILL -->
-<h2>Skill Base</h2>
-${c.skills.map(sk=>`
-<div class="skill">
-  <div><span class="name">${sk.nome}</span><span class="cost">${sk.costo} Flusso</span></div>
-  <div class="desc">${sk.desc}</div>
-  <div class="lv-row">
-    <span class="lv">Lv2: ${sk.lv2}</span>
-    <span class="lv">Lv3: ${sk.lv3}</span>
-    <span class="lv">Lv4: ${sk.lv4}</span>
-    <span class="lv" style="background:#fef3d0;color:#9a6f0a">Lv5 FINALE: ${sk.lv5}</span>
+<div class="footer">Chaos System Arkadia2099 v7 · Pagina 2/4 · ${pg.nome}</div>
+</div>
+
+<!-- ══ PAGINA 3 — SKILL DI CLASSE ══ -->
+<div class="page-break">
+
+<div class="header" style="padding:8px 14px;margin-bottom:8px">
+  <div class="header-info">
+    <h1 style="font-size:14pt">${pg.nome} — Skill di Classe</h1>
+    <div class="sub">${c.icon} <b>${c.nome}</b> &nbsp;·&nbsp; PS soglie: Lv2=20 · Lv3=70 · Lv4=170 · Lv5=370 &nbsp;·&nbsp; Flusso base: ${pg.fl}</div>
   </div>
-</div>`).join("")}
-
-<!-- FRAMMENTO -->
-<h2>Frammento del Creatore</h2>
-<div class="box-color">
-  <h3>${f.nome} <span style="font-size:8pt;color:#777;font-weight:400">— ${f.fonte}</span></h3>
-  <div style="font-style:italic;color:#555;font-size:8pt;margin:3px 0">"${f.flavor}"</div>
-  <div style="font-size:8.5pt">${f.mec}</div>
 </div>
 
-${au ? `<div class="au-box">
-  <div style="font-size:7.5pt;color:#9a6f0a;text-transform:uppercase;font-weight:700;margin-bottom:2px">✦ AU — Abilità Unica (si sblocca al Rank S)</div>
-  <div class="au-title">${au.nome}</div>
-  <div style="font-size:8.5pt">${au.desc}</div>
-  <div style="font-size:7pt;color:#999;margin-top:3px">1 uso gratuito per sessione. Usi aggiuntivi: 3 Scintille ciascuno.</div>
-</div>` : ""}
+<!-- Skill di classe complete con uso in combattimento -->
+${c.skills.map((sk,idx)=>{
+  // Determina il tipo di azione
+  const isBonus = sk.desc.toLowerCase().includes("azione bonus") || sk.desc.toLowerCase().includes("a.bonus");
+  const isReazione = sk.desc.toLowerCase().includes("reazione") || sk.desc.toLowerCase().includes("react");
+  const isPassivo = sk.costo==="0" && (sk.desc.toLowerCase().includes("passivo") || sk.desc.toLowerCase().includes("ogni volta"));
+  const tipoLabel = isReazione?"🛡️ Reazione":isBonus?"⚡ A.Bonus":isPassivo?"👁️ Passivo":"⚔️ Azione";
+  const tipoColor = isReazione?"#27ae60":isBonus?"#e67e22":isPassivo?"#8e44ad":color;
+  const costoNum = parseInt(sk.costo)||0;
 
-<!-- TRACKERS -->
-<div class="page-break"></div>
-<h1 style="font-size:14pt;margin-bottom:8px">${pg.nome} — Scheda di Gioco</h1>
+  // Calcola Flusso residuo dopo la skill
+  const flAfter = pg.fl - costoNum;
 
-<h2>Tracker PA (Punti Avanzamento)</h2>
-<div class="box">
-  <div style="font-size:8pt;margin-bottom:6px">PA attuali: _________ &nbsp;&nbsp; Rank attuale: _________ &nbsp;&nbsp; Prossimo Rank a: _________</div>
-  <div style="font-size:7.5pt;color:#555">F→E: 100 | E→D: 300 | D→C: 700 | C→B: 1500 | B→A: 3000 | A→S: 6000 | S→SS: 12000 | SS→SSS: 25000</div>
+  return `
+<div class="skill-comb" style="border-color:${color}50;margin-bottom:7px">
+  <div class="skill-comb-header" style="margin-bottom:4px">
+    <span class="skill-comb-nome">${idx+1}. ${sk.nome}</span>
+    <span class="skill-comb-cost">${sk.costo} Flusso</span>
+    <span class="skill-comb-type" style="background:${tipoColor}15;border:1px solid ${tipoColor}30;color:${tipoColor}">${tipoLabel}</span>
+    <span style="font-size:7pt;color:#888;margin-left:auto">Flusso residuo dopo uso: ${flAfter < 0 ? "⚠️ INSUFFICIENTE" : flAfter}</span>
+  </div>
+  <div class="skill-comb-desc" style="margin-bottom:4px">${sk.desc}</div>
+
+  <!-- Tabella progressione PS -->
+  <table class="att-table" style="margin-bottom:4px;font-size:7.5pt">
+    <tr><th>Lv Skill</th><th>PS totali</th><th>PS da guadagnare</th><th>Effetto aggiuntivo / potenziamento</th></tr>
+    <tr><td style="text-align:center"><b>Lv 1</b></td><td style="text-align:center">0</td><td style="text-align:center">—</td><td>Base: ${sk.desc.substring(0,70)}…</td></tr>
+    <tr><td style="text-align:center"><b>Lv 2</b></td><td style="text-align:center">20</td><td style="text-align:center">+20</td><td>${sk.lv2}</td></tr>
+    <tr><td style="text-align:center"><b>Lv 3</b></td><td style="text-align:center">70</td><td style="text-align:center">+50</td><td>${sk.lv3}</td></tr>
+    <tr><td style="text-align:center"><b>Lv 4</b></td><td style="text-align:center">170</td><td style="text-align:center">+100</td><td>${sk.lv4}</td></tr>
+    <tr style="background:#fef3d0;font-weight:700">
+      <td style="text-align:center">✦ Lv 5</td><td style="text-align:center">370</td><td style="text-align:center">+200</td><td style="color:#9a6f0a">${sk.lv5}</td>
+    </tr>
+  </table>
+
+  <!-- Tracker uso e PS -->
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <div>
+      <span style="font-size:7pt;color:#888">PS accumulati: </span>
+      <span style="border-bottom:1.5px solid #bbb;min-width:40px;display:inline-block;height:14px"></span>
+      <span style="font-size:7pt;color:#888;margin-left:8px">Lv attuale: </span>
+      <span style="border-bottom:1.5px solid #bbb;min-width:20px;display:inline-block;height:14px"></span>
+    </div>
+    <div style="display:flex;gap:3px;align-items:center">
+      <span style="font-size:7pt;color:#888">Usi sessione:</span>
+      ${Array(4).fill('<span style="width:14px;height:14px;border:1.5px solid '+color+';border-radius:3px;display:inline-block"></span>').join("")}
+    </div>
+    <div style="display:flex;align-items:center;gap:3px">
+      <span style="font-size:7pt;color:#888">Barra PS:</span>
+      <div style="height:8px;width:120px;background:#eee;border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:0%;background:${color};border-radius:4px"></div>
+      </div>
+    </div>
+  </div>
+</div>`}).join("")}
+
+<!-- Skill Generali -->
+<div style="background:#f5f5f5;border:1px solid #ccc;border-radius:5px;padding:7px 10px;margin-top:4px">
+  <h3 style="margin-bottom:4px">Skill Generali & Skill Extra Acquisite</h3>
+  <table class="att-table">
+    <tr><th>Nome Skill</th><th>Tipo / Flusso</th><th>PS</th><th>Lv</th><th>Descrizione breve</th></tr>
+    <tr style="height:22px"><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr style="height:22px"><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr style="height:22px"><td></td><td></td><td></td><td></td><td></td></tr>
+  </table>
 </div>
 
-<h2>Tracker Skill (PS — Punti Sogno)</h2>
-<table class="ps-table">
-  <tr><th>Skill</th><th>Lv Skill</th><th>PS totali</th><th>Prossima soglia</th><th>Note effetto attuale</th></tr>
-  ${c.skills.map(sk=>`<tr><td><b>${sk.nome}</b></td><td style="text-align:center">_</td><td style="text-align:center">__</td><td style="text-align:center">Lv2=20 / Lv3=70 / Lv4=170 / Lv5=370</td><td></td></tr>`).join("")}
-  <tr><td><i>Skill extra 1</i></td><td></td><td></td><td></td><td></td></tr>
-  <tr><td><i>Skill extra 2</i></td><td></td><td></td><td></td><td></td></tr>
+<div class="footer">Chaos System Arkadia2099 v7 · Pagina 3/4 · ${pg.nome}</div>
+</div>
+
+<!-- ══ PAGINA 3 — TRACKER & GESTIONE ══ -->
+<div class="page-break">
+
+<div class="header" style="padding:8px 14px;margin-bottom:8px">
+  <div class="header-info">
+    <h1 style="font-size:14pt">${pg.nome} — Tracker di Gioco</h1>
+    <div class="sub">Compila durante la sessione. I PA si accumulano — non si spendono mai.</div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>Tracker PA (Punti Avanzamento)</h2>
+    <div style="font-size:8pt;margin-bottom:5px">
+      PA attuali: <span class="vital-write"></span> &nbsp;&nbsp; Rank attuale: <span class="vital-write"></span>
+    </div>
+    <div class="pa-rank-row">
+      ${RANKS.map(rk=>`<div class="pa-rank-chip">
+        <div class="r">${rk}</div>
+        <div class="p">${RANK_PA[rk]}</div>
+        <div class="w"></div>
+      </div>`).join("")}
+    </div>
+    <div style="font-size:7pt;color:#888">Come guadagnare PA: Nemici sconfitti (2–600) | Boss (150–1000) | Missioni (50–500) | Scoperte (100–300)</div>
+  </div>
+  <div>
+    <h2>Tracker Skill (PS)</h2>
+    <div class="tracker-full">
+      <div class="tracker-head"><span>Skill</span><span>Lv</span><span>PS</span><span>Soglia pross.</span><span>Effetto corrente</span></div>
+      ${c.skills.map(sk=>`<div class="tracker-row">
+        <span><b>${sk.nome}</b></span>
+        <span style="text-align:center"><span class="write-line"></span></span>
+        <span style="text-align:center"><span class="write-line"></span></span>
+        <span style="font-size:7pt;color:#888">20/70/170/370</span>
+        <span style="font-size:7.5pt;color:#555">${sk.desc.substring(0,45)}…</span>
+      </div>`).join("")}
+      <div class="tracker-row"><span><i>Skill extra 1</i></span><span></span><span></span><span></span><span></span></div>
+      <div class="tracker-row"><span><i>Skill extra 2</i></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <div style="font-size:7pt;color:#888">Come guadagnare PS: vs Rank ≥ tuo = 3PS | vs inferiore = 1PS | uso creativo = 5PS | critico nat20 = +2PS bonus</div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>Scintille del Creatore</h2>
+    <div style="margin-bottom:5px">
+      ${Array.from({length:10}).map(()=>`<span class="scintilla-orb"></span>`).join("")}
+      <span style="font-size:8pt;color:#888;margin-left:4px">/ 10</span>
+    </div>
+    <div style="font-size:7.5pt;color:#555;line-height:1.6">
+      <b>1✦</b> Ritiro dado &nbsp;|&nbsp; <b>1✦</b> Impulso narrativo &nbsp;|&nbsp; <b>2✦</b> Sopravvivi a 0HP (1/sessione)<br>
+      <b>3✦</b> Attivazione extra AU/Frammento &nbsp;|&nbsp; <b>2✦</b> Eco del Caos +1d10 &nbsp;|&nbsp; <b>1✦</b> Memoria del Flusso
+    </div>
+  </div>
+  <div>
+    <h2>Fazione & Reputazione (RF)</h2>
+    <div class="fazione-grid">
+      ${FAZIONI.map(faz=>`<div class="faz-row"><span>${faz.icon} ${faz.nome.split(" ").slice(0,2).join(" ")}</span><span class="faz-write"></span></div>`).join("")}
+    </div>
+    <div class="faz-legend">0=Sconosciuto · 20=Simpatizzante · 60=Membro · 150=Fidato · 350=Capitano · 700=Leggenda</div>
+  </div>
+</div>
+
+<h2>Inventario — Armi & Oggetti</h2>
+<table class="inv-table">
+  <tr><th style="width:28%">Oggetto / Arma</th><th>Tipo</th><th>Bonus / Danno</th><th>Peso</th><th>Note speciali</th></tr>
+  ${Array.from({length:8}).map((_,i)=>`<tr><td></td><td></td><td></td><td></td><td></td></tr>`).join("")}
 </table>
 
-<h2>Scintille del Creatore</h2>
-<div class="box">
-  <div style="font-size:8pt;margin-bottom:4px">Scintille: ${pg.scintille} (max 10) &nbsp;&nbsp; Attualmente: ___</div>
-  <div style="font-size:7.5pt;color:#555">1✦=Ritiro dado | 1✦=Impulso narrativo | 2✦=Sopravvivi a 0HP | 3✦=Attivazione extra Frammento | 2✦=Eco del Caos (+1d10) | 1✦=Memoria del Flusso</div>
-</div>
-
-<h2>Fazione & Reputazione</h2>
-<div class="box">
-  <div style="font-size:8pt;margin-bottom:4px">Fazione principale: ___________________________ &nbsp;&nbsp; RF: ____</div>
-  <div class="fazione-row">
-    ${FAZIONI.map(faz=>`<div class="fazione-badge">${faz.icon} ${faz.sigla}: ____</div>`).join("")}
+<div class="grid2">
+  <div>
+    <h2>Background & Storia</h2>
+    <div class="note-box note-box-lg"></div>
   </div>
-  <div style="font-size:7pt;color:#777;margin-top:4px">Gradi: Sconosciuto(0) → Simpatizzante(20) → Membro(60) → Fidato(150) → Capitano(350) → Leggenda(700)</div>
+  <div>
+    <h2>Obiettivi & PNG</h2>
+    <div class="note-box note-box-lg"></div>
+  </div>
 </div>
 
-<h2>Equipaggiamento & Note</h2>
+<h2>Note Sessione</h2>
 <div class="note-box"></div>
 
-<h2>Background & Storia</h2>
-<div class="note-box" style="min-height:80px"></div>
+</div>
 
-<div class="footer">Chaos System Arkadia2099 v7 · ${pg.nome} · Generato su arkadia2099.vercel.app</div>
+<div class="footer">Chaos System Arkadia2099 v7 · Pagina 4/4 · ${pg.nome} · arkadia2099.vercel.app</div>
+
 </body></html>`;
 
-  const w = window.open("", "_blank", "width=900,height=700");
+  const w = window.open("", "_blank", "width=960,height=760");
+  if (!w) { alert("Popup bloccato dal browser. Consenti i popup per questo sito."); return; }
   w.document.write(html);
   w.document.close();
   w.onload = () => { w.focus(); w.print(); };
