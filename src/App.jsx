@@ -2559,6 +2559,733 @@ function GeneratorePage({ saveToTracker, setPage }) {
 }
 
 // ═══════════════════════════════════════════════════════
+// COMBAT PANEL — Tiri caratteristica + Armi + Skill
+// ═══════════════════════════════════════════════════════
+
+const STAT_KEYS = ["FOR","AGI","RES","INT","PER","CAR"];
+const STAT_COLORS = { FOR:"var(--danger)", AGI:"var(--success)", RES:"#e67e22", INT:"var(--purple)", PER:"var(--gold)", CAR:"var(--flux)" };
+
+function rollD20(mod, label, addLog, tipo) {
+  const base = Math.ceil(Math.random() * 20);
+  const total = base + mod;
+  const isCrit = base === 20;
+  const isFumble = base === 1;
+  const icon = isCrit ? "⚡ CRITICO!" : isFumble ? "💀 FUMBLE!" : total >= 15 ? "✓" : total >= 10 ? "~" : "✗";
+  addLog(`🎲 ${label}: d20(${base}) ${mod >= 0 ? "+" : ""}${mod} = **${total}** ${icon}`);
+  return { base, total, isCrit, isFumble };
+}
+
+function rollDamage(formula, modVal, label, addLog) {
+  // Formula es: "1d8+2" o "2d6" o "1d6+3"
+  const match = formula.match(/(\d+)d(\d+)([+-]\d+)?/i);
+  if (!match) { addLog(`❌ Formula danno non valida: ${formula}`); return 0; }
+  const n = parseInt(match[1]);
+  const faces = parseInt(match[2]);
+  const bonus = parseInt(match[3] || "0");
+  let tot = bonus + (modVal || 0);
+  const rolls = [];
+  for (let i = 0; i < n; i++) { const r = Math.ceil(Math.random() * faces); tot += r; rolls.push(r); }
+  addLog(`💥 ${label} danno: [${rolls.join(",")}]${bonus?`${bonus>=0?"+":""}${bonus}`:""}${modVal?`${modVal>=0?"+":""}${modVal} stat`:""} = **${tot}**`);
+  return tot;
+}
+
+const CONDIZIONI = [
+  {id:"avvelenato",label:"Avvelenato",icon:"☠️",color:"#4ecb71",desc:"–1 a tutti i tiri per turno"},
+  {id:"stordito",label:"Stordito",icon:"⭐",color:"#f0c060",desc:"Salta il prossimo turno"},
+  {id:"spaventato",label:"Spaventato",icon:"👁️",color:"#8e7df5",desc:"Svantaggio su attacchi"},
+  {id:"rallentato",label:"Rallentato",icon:"🐢",color:"#3498db",desc:"Velocità /2, –1 azione"},
+  {id:"prono",label:"Prono",icon:"⬇️",color:"#e67e22",desc:"Svantaggio a distanza, attacchi melee Vantaggio"},
+  {id:"immobilizzato",label:"Immobilizzato",icon:"⛓️",color:"#e05050",desc:"Non può muoversi"},
+  {id:"sanguinante",label:"Sanguinante",icon:"🩸",color:"#c0392b",desc:"–1d4 HP inizio turno"},
+  {id:"benedetto",label:"Benedetto",icon:"✨",color:"#d4a843",desc:"+1d4 al prossimo tiro"},
+  {id:"invisibile",label:"Invisibile",icon:"👻",color:"#534ab7",desc:"Non può essere bersagliato direttamente"},
+  {id:"concentrato",label:"Concentrato",icon:"🎯",color:"#0f6e56",desc:"+2 al prossimo attacco"},
+];
+
+function CombatPanel({ pg, setPersonaggi, pgStats, rank }) {
+  const cb = pg.combat || {};
+  const hpMax = pgStats?.hp || pg.hp_base || 50;
+  const flMax = pgStats?.fl || pg.fl_base || 30;
+  const hpCurr = cb.hp ?? hpMax;
+  const flCurr = cb.fl ?? flMax;
+  const scintille = cb.scintille ?? (pg.scintille || 3);
+  const condizioni = cb.condizioni || [];
+
+  const [diceResult, setDiceResult] = useState(null);
+  const [diceRolling, setDiceRolling] = useState(false);
+  const [diceType, setDiceType] = useState(20);
+  const [diceMod, setDiceMod] = useState(0);
+  const [hpInput, setHpInput] = useState("");
+  const [flInput, setFlInput] = useState("");
+  const [logEntries, setLogEntries] = useState([]);
+  const [activeTab, setActiveTab] = useState("vitali"); // vitali | stats | attacchi | skill
+
+  function updateCombat(patch) {
+    setPersonaggi(prev => prev.map(p => p.id === pg.id
+      ? { ...p, combat: { ...(p.combat || {}), ...patch } }
+      : p));
+  }
+
+  function addLog(msg) {
+    setLogEntries(prev => [{ msg, time: new Date().toLocaleTimeString("it", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }, ...prev.slice(0, 29)]);
+  }
+
+  function adjustHP(delta) {
+    const v = parseInt(delta); if (isNaN(v)) return;
+    const next = Math.max(0, Math.min(hpMax, hpCurr + v));
+    updateCombat({ hp: next });
+    addLog(`${v > 0 ? "💚" : "💔"} HP: ${v > 0 ? "+" : ""}${v} → ${next}/${hpMax}`);
+    setHpInput("");
+  }
+
+  function adjustFL(delta) {
+    const v = parseInt(delta); if (isNaN(v)) return;
+    const next = Math.max(0, Math.min(flMax, flCurr + v));
+    updateCombat({ fl: next });
+    addLog(`🔵 Flusso: ${v > 0 ? "+" : ""}${v} → ${next}/${flMax}`);
+    setFlInput("");
+  }
+
+  function toggleCondizione(id) {
+    const curr = cb.condizioni || [];
+    const next = curr.includes(id) ? curr.filter(c => c !== id) : [...curr, id];
+    updateCombat({ condizioni: next });
+    const cond = CONDIZIONI.find(c => c.id === id);
+    addLog(`${cond.icon} ${curr.includes(id) ? "Rimossa" : "Applicata"}: ${cond.label}`);
+  }
+
+  // Tiro singolo dado con mod
+  function rollDado(faces, mod) {
+    setDiceRolling(true); setDiceResult(null);
+    const m = parseInt(mod) || 0;
+    setTimeout(() => {
+      const r = Math.ceil(Math.random() * faces);
+      const tot = r + m;
+      const isCrit = faces === 20 && r === 20;
+      const isFumble = faces === 20 && r === 1;
+      setDiceResult({ val: r, tot, mod: m, faces, isCrit, isFumble });
+      setDiceRolling(false);
+      addLog(`🎲 1d${faces}${m !== 0 ? (m > 0 ? "+" : "") + m : ""}: d(${r})${m !== 0 ? (m > 0 ? "+" : "") + m : ""} = **${tot}**${isCrit ? " ⚡ CRITICO!" : isFumble ? " 💀 FUMBLE!" : ""}`);
+    }, 350);
+  }
+
+  // Tiro caratteristica — ATT o TS
+  function rollStat(statKey, tipo) {
+    if (!pg.classeData) { addLog("⚠️ Dati classe mancanti — ricrea il PG dal Generatore."); return; }
+    const c = pg.classeData;
+    const vals = { FOR: c.FOR, AGI: c.AGI, RES: c.RES, INT: c.INT, PER: c.PER, CAR: c.CAR };
+    const v = vals[statKey] || 10;
+    const mod = Math.floor((v - 10) / 2);
+    const base = Math.ceil(Math.random() * 20);
+    const tot = base + mod;
+    const isCrit = base === 20; const isFumble = base === 1;
+    addLog(`🎲 ${tipo} ${statKey} (${v}→${mod >= 0 ? "+" : ""}${mod}): d(${base})+${mod} = **${tot}**${isCrit ? " ⚡ CRITICO!" : isFumble ? " 💀 FUMBLE!" : tot >= 15 ? " ✓" : tot >= 10 ? " ~" : " ✗"}`);
+  }
+
+  // Attacco con arma dall'inventario
+  function attackWithItem(item) {
+    if (!pg.classeData) { addLog("⚠️ Dati classe mancanti."); return; }
+    const c = pg.classeData;
+    // Determina stat da usare (arma=FOR, armatura=RES, altri per tipo)
+    const statMap = { Arma: "FOR", Armatura: "RES", Consumabile: "INT", Artefatto: "INT", Altro: "FOR" };
+    const statKey = statMap[item.tipo] || "FOR";
+    const vals = { FOR: c.FOR, AGI: c.AGI, RES: c.RES, INT: c.INT, PER: c.PER, CAR: c.CAR };
+    const v = vals[statKey] || 10;
+    const mod = Math.floor((v - 10) / 2);
+    const attRoll = Math.ceil(Math.random() * 20) + mod;
+    const isCrit = (attRoll - mod) === 20;
+    const isFumble = (attRoll - mod) === 1;
+    addLog(`⚔️ [${item.nome}] ATT (${statKey}): **${attRoll}** ${isCrit ? "⚡ CRITICO!" : isFumble ? "💀 FUMBLE!" : ""}`);
+    if (item.bonus) addLog(`   Bonus: ${item.bonus}`);
+    if (isCrit) addLog("   💥 DANNO DOPPIO — tira danno e moltiplica ×2");
+  }
+
+  // Usa Skill del personaggio
+  function useSkill(sk) {
+    if (!pg.classeData) { addLog("⚠️ Dati classe mancanti."); return; }
+    const c = pg.classeData;
+    // Determina stat primaria dalla skill
+    const skData = c.skills.find(s => s.nome === sk.nome);
+    const lv = [0,20,70,170,370];
+    const skLv = lv.findIndex(t => sk.ps < t);
+    const lvLabel = skLv <= 0 ? 1 : skLv;
+    // Cerca il modificatore migliore (usa il più alto della classe)
+    const vals = { FOR: c.FOR, AGI: c.AGI, RES: c.RES, INT: c.INT, PER: c.PER, CAR: c.CAR };
+    const best = Object.entries(vals).sort((a, b) => b[1] - a[1])[0];
+    const mod = Math.floor((best[1] - 10) / 2);
+    const base = Math.ceil(Math.random() * 20);
+    const tot = base + mod;
+    const isCrit = base === 20; const isFumble = base === 1;
+    addLog(`✨ [${sk.nome}] Lv${lvLabel} (${best[0]}): d(${base})+${mod} = **${tot}**${isCrit ? " ⚡ CRITICO!" : isFumble ? " 💀 FUMBLE!" : ""}`);
+    if (skData) addLog(`   ${skData.desc.substring(0, 80)}...`);
+  }
+
+  function resetCombat() {
+    updateCombat({ hp: hpMax, fl: flMax, scintille: pg.scintille || 3, condizioni: [] });
+    addLog(`⚔️ Nuovo scontro — HP/Flusso/Scintille ripristinati.`);
+  }
+
+  const hpPct = (hpCurr / hpMax) * 100;
+  const flPct = (flCurr / flMax) * 100;
+  const hpColor = hpPct > 60 ? "#4ecb71" : hpPct > 30 ? "#f0c060" : "#e05050";
+
+  const combatTabs = [
+    { id:"vitali", label:"Vitali" },
+    { id:"stats", label:"Caratteristiche" },
+    { id:"attacchi", label:"Armi & Attacchi" },
+    { id:"skill", label:"Skill" },
+  ];
+
+  return (
+    <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"0.9rem 1.5rem", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div className="section-title" style={{ margin:0 }}>⚔️ Combattimento</div>
+        <button className="btn btn-outline" style={{ fontSize:"0.72rem" }} onClick={resetCombat}>Nuovo Scontro</button>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display:"flex", borderBottom:"1px solid var(--border)", background:"var(--bg-mid)" }}>
+        {combatTabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            background:"none", border:"none", cursor:"pointer",
+            fontFamily:"'Raleway',sans-serif", fontWeight:700, fontSize:"0.78rem",
+            letterSpacing:"0.05em", textTransform:"uppercase",
+            padding:"0.5rem 1rem",
+            color: activeTab === t.id ? "var(--purple)" : "var(--text-dim)",
+            borderBottom: activeTab === t.id ? "2px solid var(--purple)" : "2px solid transparent",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Tab Vitali */}
+      {activeTab === "vitali" && (
+        <div style={{ padding:"1.25rem 1.5rem" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1.25rem", marginBottom:"1rem" }}>
+            {/* HP */}
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.4rem" }}>
+                <span style={{ fontSize:"0.72rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Punti Vita</span>
+                <span style={{ fontFamily:"'Cinzel',serif", fontWeight:900, color:hpColor, fontSize:"1.2rem" }}>
+                  {hpCurr}<span style={{ fontSize:"0.75rem", color:"var(--text-dim)", fontWeight:400 }}>/{hpMax}</span>
+                </span>
+              </div>
+              <div style={{ height:10, background:"rgba(255,255,255,0.06)", borderRadius:5, overflow:"hidden", marginBottom:"0.75rem" }}>
+                <div style={{ height:"100%", width:`${hpPct}%`, background:hpColor, borderRadius:5, transition:"all 0.4s", boxShadow:`0 0 8px ${hpColor}60` }} />
+              </div>
+              <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.4rem" }}>
+                {[-10,-5,-1,1,5,10].map(d => (
+                  <button key={d} onClick={() => adjustHP(d)} style={{
+                    flex:1, padding:"0.3rem 0", borderRadius:4, cursor:"pointer", fontSize:"0.8rem", fontWeight:700,
+                    border:`1px solid ${d < 0 ? "rgba(224,80,80,0.4)" : "rgba(78,203,113,0.4)"}`,
+                    background: d < 0 ? "rgba(224,80,80,0.08)" : "rgba(78,203,113,0.08)",
+                    color: d < 0 ? "#e05050" : "#4ecb71", fontFamily:"'Cinzel',sans-serif",
+                  }}>{d > 0 ? "+" : ""}{d}</button>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:"0.4rem" }}>
+                <input className="input-field" type="number" placeholder="±HP personalizzato" value={hpInput}
+                  onChange={e => setHpInput(e.target.value)} onKeyDown={e => e.key === "Enter" && adjustHP(hpInput)}
+                  style={{ flex:1, fontSize:"0.82rem", padding:"0.3rem 0.5rem" }} />
+                <button className="btn btn-outline" style={{ fontSize:"0.78rem" }} onClick={() => adjustHP(hpInput)}>OK</button>
+              </div>
+              {hpCurr === 0 && (
+                <div style={{ marginTop:"0.6rem", background:"rgba(224,80,80,0.12)", border:"1px solid rgba(224,80,80,0.4)", borderRadius:6, padding:"0.5rem 0.75rem", fontSize:"0.8rem", color:"#e05050", fontWeight:700 }}>
+                  ⚠️ STATO CRITICO — Tiri Salvezza Mortali<br/>
+                  <span style={{ fontSize:"0.72rem", fontWeight:400 }}>3 Successi (10+) = stabile | 3 Fallimenti = morte | Nat20 = recuperi 1 HP</span>
+                </div>
+              )}
+            </div>
+
+            {/* Flusso */}
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.4rem" }}>
+                <span style={{ fontSize:"0.72rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Flusso</span>
+                <span style={{ fontFamily:"'Cinzel',serif", fontWeight:900, color:"var(--flux)", fontSize:"1.2rem" }}>
+                  {flCurr}<span style={{ fontSize:"0.75rem", color:"var(--text-dim)", fontWeight:400 }}>/{flMax}</span>
+                </span>
+              </div>
+              <div style={{ height:10, background:"rgba(255,255,255,0.06)", borderRadius:5, overflow:"hidden", marginBottom:"0.75rem" }}>
+                <div style={{ height:"100%", width:`${flPct}%`, background:"var(--flux)", borderRadius:5, transition:"all 0.4s", boxShadow:"0 0 8px rgba(122,240,200,0.4)" }} />
+              </div>
+              <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.4rem" }}>
+                {[-6,-3,-1,1,3,6].map(d => (
+                  <button key={d} onClick={() => adjustFL(d)} style={{
+                    flex:1, padding:"0.3rem 0", borderRadius:4, cursor:"pointer", fontSize:"0.8rem", fontWeight:700,
+                    border:`1px solid ${d < 0 ? "rgba(122,240,200,0.2)" : "rgba(122,240,200,0.4)"}`,
+                    background: d < 0 ? "rgba(122,240,200,0.04)" : "rgba(122,240,200,0.08)",
+                    color:"var(--flux)", fontFamily:"'Cinzel',sans-serif",
+                  }}>{d > 0 ? "+" : ""}{d}</button>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:"0.4rem" }}>
+                <input className="input-field" type="number" placeholder="±Flusso personalizzato" value={flInput}
+                  onChange={e => setFlInput(e.target.value)} onKeyDown={e => e.key === "Enter" && adjustFL(flInput)}
+                  style={{ flex:1, fontSize:"0.82rem", padding:"0.3rem 0.5rem" }} />
+                <button className="btn btn-outline" style={{ fontSize:"0.78rem" }} onClick={() => adjustFL(flInput)}>OK</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Scintille */}
+          <div style={{ marginBottom:"1rem" }}>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:"0.5rem" }}>
+              Scintille del Creatore ({scintille}/10)
+            </div>
+            <div style={{ display:"flex", gap:"0.35rem", alignItems:"center" }}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} onClick={() => { updateCombat({ scintille: i < scintille ? scintille - 1 : i + 1 }); }} style={{
+                  width:22, height:22, borderRadius:"50%", cursor:"pointer", transition:"all 0.2s",
+                  background: i < scintille ? "var(--gold)" : "rgba(212,168,67,0.1)",
+                  border:`1px solid ${i < scintille ? "var(--gold)" : "rgba(212,168,67,0.2)"}`,
+                  boxShadow: i < scintille ? "0 0 6px rgba(212,168,67,0.5)" : "none",
+                }} />
+              ))}
+              <span style={{ fontSize:"0.75rem", color:"var(--gold)", fontFamily:"'Cinzel',serif", fontWeight:700, marginLeft:"0.5rem" }}>{scintille}</span>
+            </div>
+            <div style={{ display:"flex", gap:"0.5rem", marginTop:"0.5rem", flexWrap:"wrap" }}>
+              {[
+                { label:"Ritiro dado", cost:"1✦" }, { label:"Impulso narrativo", cost:"1✦" },
+                { label:"Sopravvivi a 0HP", cost:"2✦" }, { label:"Attiva AU", cost:"3✦" },
+                { label:"Eco del Caos +1d10", cost:"2✦" }, { label:"Memoria Flusso", cost:"1✦" },
+              ].map(s => (
+                <div key={s.label} style={{ fontSize:"0.72rem", color:"var(--text-dim)", background:"rgba(212,168,67,0.05)", border:"1px solid rgba(212,168,67,0.15)", borderRadius:4, padding:"2px 7px" }}>
+                  <span style={{ color:"var(--gold)", fontWeight:700 }}>{s.cost}</span> {s.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Condizioni */}
+          <div>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:"0.5rem" }}>Condizioni</div>
+            <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap" }}>
+              {CONDIZIONI.map(cond => {
+                const active = condizioni.includes(cond.id);
+                return (
+                  <button key={cond.id} onClick={() => toggleCondizione(cond.id)} title={cond.desc} style={{
+                    padding:"0.3rem 0.6rem", borderRadius:20, fontSize:"0.75rem", cursor:"pointer",
+                    border:`1px solid ${active ? cond.color : "var(--border)"}`,
+                    background: active ? `${cond.color}20` : "transparent",
+                    color: active ? cond.color : "var(--text-dim)",
+                    fontWeight: active ? 700 : 400, transition:"all 0.15s",
+                    display:"flex", alignItems:"center", gap:"0.3rem",
+                  }}>
+                    <span>{cond.icon}</span>{cond.label}
+                  </button>
+                );
+              })}
+            </div>
+            {condizioni.length > 0 && (
+              <div style={{ marginTop:"0.5rem", display:"flex", flexDirection:"column", gap:"0.2rem" }}>
+                {condizioni.map(id => {
+                  const c = CONDIZIONI.find(x => x.id === id);
+                  return c ? <div key={id} style={{ fontSize:"0.75rem", color:c.color }}>{c.icon} {c.label}: {c.desc}</div> : null;
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab Caratteristiche */}
+      {activeTab === "stats" && (
+        <div style={{ padding:"1.25rem 1.5rem" }}>
+          <p style={{ fontSize:"0.8rem", color:"var(--text-dim)", marginBottom:"1rem" }}>
+            Tira 1d20 + modificatore della caratteristica. Usa <b>ATT</b> per attacchi, <b>TS</b> per tiri salvezza.
+          </p>
+          {pg.classeData ? (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"0.75rem" }}>
+              {STAT_KEYS.map(sk => {
+                const v = pg.classeData[sk] || 10;
+                const mod = Math.floor((v - 10) / 2);
+                const col = STAT_COLORS[sk];
+                return (
+                  <div key={sk} style={{ background:"var(--bg-card2)", border:`1px solid ${col}30`, borderRadius:8, padding:"0.9rem", textAlign:"center" }}>
+                    <div style={{ fontFamily:"'Cinzel',serif", fontWeight:900, color:col, fontSize:"1.2rem" }}>{sk}</div>
+                    <div style={{ fontSize:"1.5rem", fontWeight:900, color:"var(--text-bright)", lineHeight:1 }}>{v}</div>
+                    <div style={{ fontSize:"0.75rem", color:col, fontWeight:700, marginBottom:"0.6rem" }}>
+                      {mod >= 0 ? "+" : ""}{mod}
+                    </div>
+                    <div style={{ display:"flex", gap:"0.35rem" }}>
+                      <button onClick={() => rollStat(sk, "ATT")} style={{
+                        flex:1, padding:"0.35rem 0", borderRadius:4, cursor:"pointer",
+                        border:`1px solid ${col}50`, background:`${col}12`, color:col,
+                        fontSize:"0.72rem", fontWeight:700, fontFamily:"'Raleway',sans-serif",
+                      }}>🎲 ATT</button>
+                      <button onClick={() => rollStat(sk, "TS")} style={{
+                        flex:1, padding:"0.35rem 0", borderRadius:4, cursor:"pointer",
+                        border:"1px solid var(--border)", background:"transparent", color:"var(--text-dim)",
+                        fontSize:"0.72rem", fontWeight:700, fontFamily:"'Raleway',sans-serif",
+                      }}>🛡️ TS</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ padding:"1.5rem", textAlign:"center", color:"var(--text-dim)", fontSize:"0.85rem" }}>
+              ⚠️ Questo personaggio è stato creato manualmente. Ricrealo dal Generatore per avere i tiri automatici.
+            </div>
+          )}
+
+          {/* Tiri combo */}
+          <div style={{ marginTop:"1.25rem" }}>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:"0.6rem" }}>Tiri Speciali</div>
+            <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+              {[
+                { label:"Iniziativa (AGI)", statKey:"AGI", extra:"" },
+                { label:"Vantaggio (2d20 alto)", statKey:null, special:"vantaggio" },
+                { label:"Svantaggio (2d20 basso)", statKey:null, special:"svantaggio" },
+                { label:"TS Mortale (1d20≥10)", statKey:null, special:"mortale" },
+              ].map(t => (
+                <button key={t.label} onClick={() => {
+                  if (t.special === "vantaggio") {
+                    const r1 = Math.ceil(Math.random()*20); const r2 = Math.ceil(Math.random()*20);
+                    const best = Math.max(r1,r2);
+                    addLog(`↑ VANTAGGIO: d20[${r1},${r2}] → usa **${best}** ${best===20?"⚡ CRITICO!":best===1?"💀 FUMBLE!":""}`);
+                  } else if (t.special === "svantaggio") {
+                    const r1 = Math.ceil(Math.random()*20); const r2 = Math.ceil(Math.random()*20);
+                    const worst = Math.min(r1,r2);
+                    addLog(`↓ SVANTAGGIO: d20[${r1},${r2}] → usa **${worst}** ${worst===1?"💀 FUMBLE!":""}`);
+                  } else if (t.special === "mortale") {
+                    const r = Math.ceil(Math.random()*20);
+                    addLog(`⚠️ TS MORTALE: **${r}** → ${r>=10?"✓ SUCCESSO":"✗ FALLIMENTO"}${r===20?" ⚡ recuperi 1 HP!":""}`);
+                  } else if (t.statKey) {
+                    rollStat(t.statKey, "INIT");
+                  }
+                }} style={{
+                  padding:"0.4rem 0.9rem", borderRadius:4, cursor:"pointer",
+                  border:"1px solid var(--border)", background:"rgba(140,110,255,0.06)",
+                  color:"var(--text)", fontSize:"0.8rem", fontWeight:600, fontFamily:"'Raleway',sans-serif",
+                }}>{t.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Combo */}
+          <div style={{ marginTop:"1rem" }}>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:"0.5rem" }}>Sistema Combo</div>
+            <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+              {[
+                { label:"Combo 2° (+1d4)", extra:()=>{ const r=Math.ceil(Math.random()*4); addLog(`✦ Combo 2°: +1d4 danno = **+${r}**`); } },
+                { label:"Combo 3° (+2d4)", extra:()=>{ const r=Math.ceil(Math.random()*4)+Math.ceil(Math.random()*4); addLog(`✦✦ Combo 3°: +2d4 danno = **+${r}** (o critico se mancavi di ≤2)`); } },
+                { label:"Combo 4°+ (×2 danno)", extra:()=>{ addLog("✦✦✦ Combo 4°+: DANNO RADDOPPIATO — tira danno arma e moltiplica ×2"); } },
+              ].map(c => (
+                <button key={c.label} onClick={c.extra} style={{
+                  padding:"0.4rem 0.9rem", borderRadius:4, cursor:"pointer",
+                  border:"1px solid rgba(140,110,255,0.35)", background:"rgba(140,110,255,0.08)",
+                  color:"var(--purple)", fontSize:"0.8rem", fontWeight:700, fontFamily:"'Raleway',sans-serif",
+                }}>{c.label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Armi & Attacchi — usa inventario */}
+      {activeTab === "attacchi" && (
+        <div style={{ padding:"1.25rem 1.5rem" }}>
+          <div style={{ display:"flex", gap:"0.75rem", marginBottom:"1rem", flexWrap:"wrap" }}>
+            {/* Dado personalizzato */}
+            <div style={{ background:"var(--bg-card2)", border:"1px solid var(--border)", borderRadius:8, padding:"0.9rem", flex:"1", minWidth:220 }}>
+              <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", marginBottom:"0.5rem" }}>Dado Personalizzato</div>
+              <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", marginBottom:"0.5rem" }}>
+                {[4,6,8,10,12,20,100].map(d => (
+                  <button key={d} onClick={() => setDiceType(d)} style={{
+                    padding:"0.25rem 0.5rem", borderRadius:4, fontSize:"0.78rem",
+                    fontFamily:"'Cinzel',serif", fontWeight:700,
+                    border:`1px solid ${diceType===d?"var(--purple)":"var(--border)"}`,
+                    background: diceType===d?"rgba(140,110,255,0.15)":"transparent",
+                    color: diceType===d?"var(--purple)":"var(--text-dim)",
+                    cursor:"pointer",
+                  }}>d{d}</button>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", marginBottom:"0.5rem" }}>
+                <span style={{ fontSize:"0.75rem", color:"var(--text-dim)" }}>Mod:</span>
+                <input type="number" value={diceMod} onChange={e=>setDiceMod(e.target.value)}
+                  style={{ width:56, fontSize:"0.85rem", padding:"0.25rem 0.4rem", background:"rgba(255,255,255,0.04)", border:"1px solid var(--border)", borderRadius:4, color:"var(--text)" }} />
+              </div>
+              <div onClick={() => rollDado(diceType, diceMod)} style={{
+                height:60, display:"flex", alignItems:"center", justifyContent:"center",
+                background:"rgba(140,110,255,0.05)", border:"1px solid var(--border)", borderRadius:8, cursor:"pointer",
+              }}>
+                {diceRolling ? (
+                  <span style={{ fontSize:"1.8rem", animation:"dice-roll 0.35s" }}>🎲</span>
+                ) : diceResult ? (
+                  <div style={{ textAlign:"center" }}>
+                    <div style={{ fontFamily:"'Cinzel',serif", fontWeight:900, fontSize:"2rem", lineHeight:1,
+                      color: diceResult.isCrit?"var(--gold)":diceResult.isFumble?"var(--danger)":"var(--text-bright)" }}>
+                      {diceResult.tot}
+                    </div>
+                    <div style={{ fontSize:"0.65rem", color:"var(--text-dim)" }}>d{diceResult.faces}({diceResult.val}){diceResult.mod!==0?(diceResult.mod>0?"+":"")+diceResult.mod:""}</div>
+                    {diceResult.isCrit && <div style={{ fontSize:"0.65rem", color:"var(--gold)", fontWeight:700 }}>CRITICO!</div>}
+                    {diceResult.isFumble && <div style={{ fontSize:"0.65rem", color:"var(--danger)", fontWeight:700 }}>FUMBLE!</div>}
+                  </div>
+                ) : <span style={{ color:"var(--text-dim)", fontSize:"0.82rem" }}>Clicca per tirare 1d{diceType}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Armi dall'inventario */}
+          <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:"0.5rem" }}>
+            Attacchi da Inventario
+          </div>
+          {(pg.inventario || []).filter(it => ["Arma","Artefatto"].includes(it.tipo)).length === 0 ? (
+            <div style={{ padding:"1rem", textAlign:"center", color:"var(--text-dim)", fontSize:"0.82rem", background:"rgba(140,110,255,0.03)", border:"1px solid var(--border)", borderRadius:6 }}>
+              Nessuna arma nell'inventario. Aggiungila nella sezione Inventario.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:"0.4rem" }}>
+              {(pg.inventario || []).filter(it => ["Arma","Artefatto"].includes(it.tipo)).map(item => (
+                <div key={item.id} style={{
+                  display:"flex", alignItems:"center", gap:"0.75rem", padding:"0.65rem 0.9rem",
+                  background:"rgba(140,110,255,0.05)", border:"1px solid var(--border)", borderRadius:6,
+                }}>
+                  <span style={{ fontSize:"1.1rem" }}>{TIPO_ICONS[item.tipo]}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.88rem" }}>{item.nome}</div>
+                    {item.bonus && <div style={{ fontSize:"0.72rem", color:"var(--gold)" }}>{item.bonus}</div>}
+                    {item.note && <div style={{ fontSize:"0.72rem", color:"var(--text-dim)" }}>{item.note}</div>}
+                  </div>
+                  <button onClick={() => attackWithItem(item)} style={{
+                    padding:"0.35rem 0.8rem", borderRadius:4, cursor:"pointer",
+                    border:"1px solid rgba(224,80,80,0.4)", background:"rgba(224,80,80,0.08)",
+                    color:"#e05050", fontSize:"0.78rem", fontWeight:700, fontFamily:"'Raleway',sans-serif",
+                  }}>⚔️ Attacca</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Attacchi rapidi generici */}
+          <div style={{ marginTop:"1rem" }}>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", marginBottom:"0.5rem" }}>Attacchi Rapidi</div>
+            <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+              {pg.classeData ? [
+                { label:"Attacco Base (FOR)", f:()=>{ const c=pg.classeData; const mod=Math.floor((c.FOR-10)/2); const r=Math.ceil(Math.random()*20); const dmg=Math.ceil(Math.random()*8)+Math.max(0,mod); addLog(`⚔️ Attacco Base FOR: d(${r})+${mod}=**${r+mod}** | Danno 1d8+${mod}=**${dmg}**`); } },
+                { label:"Attacco Agile (AGI)", f:()=>{ const c=pg.classeData; const mod=Math.floor((c.AGI-10)/2); const r=Math.ceil(Math.random()*20); const dmg=Math.ceil(Math.random()*6)+Math.max(0,mod); addLog(`🗡️ Attacco Agile AGI: d(${r})+${mod}=**${r+mod}** | Danno 1d6+${mod}=**${dmg}**`); } },
+                { label:"Magia (INT)", f:()=>{ const c=pg.classeData; const mod=Math.floor((c.INT-10)/2); const r=Math.ceil(Math.random()*20); const d1=Math.ceil(Math.random()*6); const d2=Math.ceil(Math.random()*6); addLog(`⚡ Magia INT: d(${r})+${mod}=**${r+mod}** | Danno 2d6+${mod}=**${d1+d2+mod}**`); } },
+              ].map(a => (
+                <button key={a.label} onClick={a.f} style={{
+                  padding:"0.4rem 0.9rem", borderRadius:4, cursor:"pointer",
+                  border:"1px solid var(--border)", background:"rgba(140,110,255,0.06)",
+                  color:"var(--text)", fontSize:"0.8rem", fontWeight:600, fontFamily:"'Raleway',sans-serif",
+                }}>{a.label}</button>
+              )) : <div style={{ fontSize:"0.82rem", color:"var(--text-dim)" }}>Ricrea il personaggio dal Generatore per gli attacchi automatici.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Skill */}
+      {activeTab === "skill" && (
+        <div style={{ padding:"1.25rem 1.5rem" }}>
+          {pg.skills && pg.skills.length > 0 && pg.classeData ? (
+            <div style={{ display:"flex", flexDirection:"column", gap:"0.6rem" }}>
+              {pg.skills.map(sk => {
+                const lv = [0,20,70,170,370]; const lvNum = lv.findIndex(t => sk.ps < t); const lvLabel = lvNum<=0?1:lvNum;
+                const skData = pg.classeData.skills.find(s => s.nome === sk.nome);
+                const skColor = ["","var(--text-dim)","var(--purple)","var(--flux)","var(--gold)","var(--gold-bright)"][lvLabel];
+                return (
+                  <div key={sk.nome} style={{ background:"var(--bg-card2)", border:`1px solid ${skColor}25`, borderRadius:8, padding:"0.9rem 1rem" }}>
+                    <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:"0.75rem", flexWrap:"wrap" }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.3rem" }}>
+                          <span style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.9rem" }}>{sk.nome}</span>
+                          <span style={{ fontSize:"0.7rem", background:`${skColor}18`, color:skColor, border:`1px solid ${skColor}30`, borderRadius:3, padding:"1px 6px" }}>Lv{lvLabel}</span>
+                          {skData && <span style={{ fontSize:"0.7rem", color:"var(--flux)", background:"rgba(122,240,200,0.08)", borderRadius:3, padding:"1px 6px" }}>{skData.costo} Flusso</span>}
+                        </div>
+                        {skData && <p style={{ fontSize:"0.78rem", color:"var(--text-dim)", lineHeight:1.5, marginBottom:"0.4rem" }}>{skData.desc}</p>}
+                        {skData && lvLabel >= 2 && (
+                          <div style={{ fontSize:"0.72rem", color:skColor }}>
+                            {lvLabel===2?skData.lv2:lvLabel===3?skData.lv3:lvLabel===4?skData.lv4:skData.lv5}
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={() => useSkill(sk)} style={{
+                        padding:"0.5rem 1rem", borderRadius:6, cursor:"pointer", flexShrink:0,
+                        border:`1px solid ${skColor}40`, background:`${skColor}10`,
+                        color:skColor, fontSize:"0.82rem", fontWeight:700, fontFamily:"'Raleway',sans-serif",
+                      }}>✨ Usa Skill</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ padding:"1.5rem", textAlign:"center", color:"var(--text-dim)", fontSize:"0.85rem" }}>
+              Nessuna Skill disponibile. Crea il personaggio dal Generatore per aggiungere le Skill automaticamente.
+            </div>
+          )}
+
+          {/* AU Frammento */}
+          {pg.frammento && AU_MAP[pg.frammento.nome] && (
+            <div style={{ marginTop:"1rem", background:"rgba(212,168,67,0.05)", border:"1px solid rgba(212,168,67,0.3)", borderRadius:8, padding:"0.9rem 1rem" }}>
+              <div style={{ fontSize:"0.65rem", color:"var(--gold)", textTransform:"uppercase", fontWeight:700, marginBottom:"0.4rem" }}>✦ Abilità Unica — {pg.frammento.nome}</div>
+              <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--gold)", marginBottom:"0.4rem" }}>{AU_MAP[pg.frammento.nome].nome}</div>
+              <p style={{ fontSize:"0.8rem", color:"var(--text-dim)", lineHeight:1.6, marginBottom:"0.6rem" }}>{AU_MAP[pg.frammento.nome].desc}</p>
+              {rank && ["S","SS","SSS"].includes(rank) ? (
+                <button onClick={() => addLog(`✦ AU ATTIVATA — ${pg.frammento.nome}: ${AU_MAP[pg.frammento.nome].nome}`)} style={{
+                  padding:"0.45rem 1rem", borderRadius:6, cursor:"pointer",
+                  border:"1px solid rgba(212,168,67,0.4)", background:"rgba(212,168,67,0.1)",
+                  color:"var(--gold)", fontSize:"0.82rem", fontWeight:700, fontFamily:"'Raleway',sans-serif",
+                }}>✦ Attiva AU</button>
+              ) : (
+                <div style={{ fontSize:"0.75rem", color:"var(--text-dim)", fontStyle:"italic" }}>AU sbloccata al Rank S</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Log */}
+      {logEntries.length > 0 && (
+        <div style={{ borderTop:"1px solid var(--border)", padding:"0.75rem 1.5rem" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.4rem" }}>
+            <div style={{ fontSize:"0.65rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Log Scontro</div>
+            <button onClick={() => setLogEntries([])} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--text-dim)", fontSize:"0.7rem" }}>Svuota</button>
+          </div>
+          <div style={{ maxHeight:130, overflowY:"auto", display:"flex", flexDirection:"column", gap:"0.15rem" }}>
+            {logEntries.map((e, i) => (
+              <div key={i} style={{ fontSize:"0.75rem", color: i===0?"var(--text)":"var(--text-dim)" }}>
+                <span style={{ opacity:0.45, marginRight:"0.4rem", fontSize:"0.68rem" }}>{e.time}</span>
+                <span dangerouslySetInnerHTML={{ __html: e.msg.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text-bright)">$1</strong>') }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// INVENTARIO PANEL
+// ═══════════════════════════════════════════════════════
+const TIPO_ICONS = { Arma:"⚔️", Armatura:"🛡️", Consumabile:"🧪", Artefatto:"✦", Altro:"📦" };
+const TIPO_COLORS = { Arma:"var(--danger)", Armatura:"var(--purple)", Consumabile:"var(--flux)", Artefatto:"var(--gold)", Altro:"var(--text-dim)" };
+
+function InventarioPanel({ pg, setPersonaggi }) {
+  const inventario = pg.inventario || [];
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ nome:"", tipo:"Arma", peso:"", bonus:"", note:"" });
+  const [editId, setEditId] = useState(null);
+
+  function updateInventario(items) {
+    setPersonaggi(prev => prev.map(p => p.id===pg.id ? { ...p, inventario: items } : p));
+  }
+
+  function saveItem() {
+    if (!form.nome.trim()) return;
+    if (editId) {
+      updateInventario(inventario.map(it => it.id===editId ? { ...it, ...form } : it));
+      setEditId(null);
+    } else {
+      updateInventario([...inventario, { ...form, id: Date.now(), usato: false }]);
+    }
+    setForm({ nome:"", tipo:"Arma", peso:"", bonus:"", note:"" });
+    setShowForm(false);
+  }
+
+  function deleteItem(id) {
+    updateInventario(inventario.filter(it => it.id !== id));
+  }
+
+  function toggleUsato(id) {
+    updateInventario(inventario.map(it => it.id===id ? { ...it, usato: !it.usato } : it));
+  }
+
+  function startEdit(item) {
+    setForm({ nome:item.nome, tipo:item.tipo, peso:item.peso||"", bonus:item.bonus||"", note:item.note||"" });
+    setEditId(item.id);
+    setShowForm(true);
+  }
+
+  const pesoTot = inventario.reduce((s,it) => s + (parseFloat(it.peso)||0), 0);
+  const byTipo = ["Arma","Armatura","Consumabile","Artefatto","Altro"].map(t => ({
+    tipo:t, items: inventario.filter(it => it.tipo===t)
+  })).filter(g => g.items.length > 0);
+
+  return (
+    <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, overflow:"hidden" }}>
+      <div style={{ padding:"1rem 1.5rem", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div>
+          <div className="section-title">🎒 Inventario</div>
+          <p style={{ fontSize:"0.75rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+            {inventario.length} oggetti · Peso totale: {pesoTot.toFixed(1)} kg
+          </p>
+        </div>
+        <button className="btn btn-primary" style={{ fontSize:"0.72rem" }} onClick={() => { setShowForm(true); setEditId(null); setForm({ nome:"", tipo:"Arma", peso:"", bonus:"", note:"" }); }}>+ Oggetto</button>
+      </div>
+
+      {/* Form aggiunta */}
+      {showForm && (
+        <div style={{ padding:"1.25rem 1.5rem", borderBottom:"1px solid var(--border)", background:"rgba(140,110,255,0.03)" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.6rem", marginBottom:"0.6rem" }}>
+            <input className="input-field" placeholder="Nome oggetto *" value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} style={{ fontSize:"0.85rem" }} />
+            <select className="input-field" value={form.tipo} onChange={e=>setForm(p=>({...p,tipo:e.target.value}))} style={{ fontSize:"0.85rem" }}>
+              {["Arma","Armatura","Consumabile","Artefatto","Altro"].map(t => <option key={t}>{t}</option>)}
+            </select>
+            <input className="input-field" placeholder="Peso (kg)" type="number" value={form.peso} onChange={e=>setForm(p=>({...p,peso:e.target.value}))} style={{ fontSize:"0.85rem" }} />
+            <input className="input-field" placeholder="Bonus (es: +2 ATT, Difesa +1)" value={form.bonus} onChange={e=>setForm(p=>({...p,bonus:e.target.value}))} style={{ fontSize:"0.85rem" }} />
+            <input className="input-field" placeholder="Note / descrizione" value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))} style={{ fontSize:"0.85rem", gridColumn:"1/-1" }} />
+          </div>
+          <div style={{ display:"flex", gap:"0.5rem" }}>
+            <button className="btn btn-primary" style={{ fontSize:"0.8rem" }} onClick={saveItem}>{editId ? "Aggiorna" : "Aggiungi"}</button>
+            <button className="btn btn-outline" style={{ fontSize:"0.8rem" }} onClick={() => { setShowForm(false); setEditId(null); }}>Annulla</button>
+          </div>
+        </div>
+      )}
+
+      {/* Lista */}
+      {inventario.length === 0 ? (
+        <div style={{ padding:"2rem", textAlign:"center", color:"var(--text-dim)", fontSize:"0.85rem" }}>
+          <div style={{ fontSize:"2rem", marginBottom:"0.5rem" }}>🎒</div>
+          Nessun oggetto. Aggiungi armi, armature e artefatti.
+        </div>
+      ) : (
+        <div style={{ padding:"0.75rem 1.5rem 1.25rem" }}>
+          {byTipo.map(g => (
+            <div key={g.tipo} style={{ marginBottom:"1rem" }}>
+              <div style={{ fontSize:"0.68rem", color:TIPO_COLORS[g.tipo], textTransform:"uppercase", letterSpacing:"0.1em", fontWeight:700, marginBottom:"0.4rem" }}>
+                {TIPO_ICONS[g.tipo]} {g.tipo} ({g.items.length})
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:"0.35rem" }}>
+                {g.items.map(it => (
+                  <div key={it.id} style={{
+                    display:"flex", alignItems:"flex-start", gap:"0.75rem", padding:"0.6rem 0.75rem",
+                    background: it.usato ? "rgba(140,110,255,0.03)" : "rgba(140,110,255,0.06)",
+                    border:`1px solid ${it.usato?"rgba(140,110,255,0.06)":"rgba(140,110,255,0.15)"}`,
+                    borderRadius:6, opacity: it.usato ? 0.55 : 1, transition:"all 0.2s",
+                  }}>
+                    <input type="checkbox" checked={it.usato} onChange={() => toggleUsato(it.id)}
+                      style={{ marginTop:3, cursor:"pointer", accentColor:"var(--purple)" }} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", flexWrap:"wrap" }}>
+                        <span style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color: it.usato?"var(--text-dim)":"var(--text-bright)", fontSize:"0.85rem", textDecoration: it.usato?"line-through":"none" }}>{it.nome}</span>
+                        {it.bonus && <span style={{ fontSize:"0.7rem", background:`${TIPO_COLORS[it.tipo]}18`, color:TIPO_COLORS[it.tipo], border:`1px solid ${TIPO_COLORS[it.tipo]}30`, borderRadius:3, padding:"1px 6px" }}>{it.bonus}</span>}
+                        {it.peso && <span style={{ fontSize:"0.68rem", color:"var(--text-dim)" }}>{it.peso}kg</span>}
+                      </div>
+                      {it.note && <div style={{ fontSize:"0.75rem", color:"var(--text-dim)", marginTop:"0.15rem" }}>{it.note}</div>}
+                    </div>
+                    <div style={{ display:"flex", gap:"0.3rem", flexShrink:0 }}>
+                      <button onClick={() => startEdit(it)} style={{ background:"none", border:"1px solid var(--border)", borderRadius:4, padding:"0.2rem 0.4rem", cursor:"pointer", fontSize:"0.72rem", color:"var(--text-dim)" }}>✏️</button>
+                      <button onClick={() => deleteItem(it.id)} style={{ background:"none", border:"1px solid rgba(224,80,80,0.3)", borderRadius:4, padding:"0.2rem 0.4rem", cursor:"pointer", fontSize:"0.72rem", color:"var(--danger)" }}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 // PAGINA: TRACKER PA / PS
 // ═══════════════════════════════════════════════════════
 function TrackerPage() {
@@ -2921,7 +3648,6 @@ function TrackerPage() {
                           </div>
                         </div>
                         <ProgressBar value={sk.ps - (lv>=5?370:([0,20,70,170,370][lv-1]))} max={lv>=5?1:([0,20,70,170,370][lv]-[0,20,70,170,370][lv-1])} color={sklColors[lv]} height={5} />
-                        {/* Mini livelli */}
                         <div style={{ display:"flex", gap:"0.25rem", marginTop:"0.4rem" }}>
                           {[1,2,3,4,5].map(l => (
                             <div key={l} style={{
@@ -2941,6 +3667,12 @@ function TrackerPage() {
                 </div>
               )}
             </div>
+
+            {/* ══ COMBATTIMENTO ══ */}
+            <CombatPanel pg={pg} setPersonaggi={setPersonaggi} pgStats={pgStats} rank={rank} />
+
+            {/* ══ INVENTARIO ══ */}
+            <InventarioPanel pg={pg} setPersonaggi={setPersonaggi} />
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"4rem", color:"var(--text-dim)", textAlign:"center" }}>
