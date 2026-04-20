@@ -224,6 +224,9 @@ const RAZZE = [
   {nome:"Fantasma",flavor:"Entità semi-corporea — già attraversata la morte una volta",bonus:"+2 INT, +2 PER, +1 CAR / –3 FOR / no armature pesanti",tratto1:"Corpo d'Ombra: 1/sessione, ignora completamente il primo colpo fisico ricevuto.",tratto2:"Eco della Memoria: percepisce emozioni entro 5m. 1/turno: +3 Difesa contro attacco visto partire.",malus:"FOR –3, nessuna armatura pesante, danno sacro/purificazione ×1.5.",mod_hp:-9,mod_fl:0,mod_dif:0,color:"#534ab7"},
   {nome:"Nano del Sogno",flavor:"Custode della pietra — indistruttibile, lento, insostituibile",bonus:"+2 RES, +2 FOR, +1 INT / –2 AGI / Velocità –1",tratto1:"Pelle di Mithral: +1 Difesa permanente. Immune ai veleni naturali. Vantaggio su TS condizioni fisiche.",tratto2:"Maestro Artigiano: ogni riposo lungo crea 1 oggetto (Bomba, Pozione, Trappola, o Arnese +3).",malus:"AGI –2, Velocità –1 (min 1). Svantaggio su Schivata Attiva.",mod_hp:6,mod_fl:0,mod_dif:1,color:"#854f0b"},
   {nome:"Bestian",flavor:"Umanoide con tratti animali — sensi affinati, corpo agile",bonus:"+2 AGI, +1 PER, +1 FOR / scegli sottospecie al Rank F",tratto1:"Sensi Acuti: non puoi essere sorpreso. Vantaggio su Percezione passiva. Rilevi stealth entro 8m.",tratto2:"Artigli/Morso: 1d6+FOR o AGI come Azione Bonus dopo attacco con arma. Sottospecie: Felino (+1 AGI), Canide (+1 FOR), Rapace (+1 PER).",malus:"Svantaggio Furtività in spazi chiusi (odore). Scegli sottospecie al Rank F.",mod_hp:0,mod_fl:0,mod_dif:0,color:"#3b6d11"},
+  {nome:"Cyborg",flavor:"Umano modificato — ha perso pezzi di sé, ha guadagnato qualcos'altro",bonus:"+2 FOR, +2 RES, +1 INT / –1 AGI / nessuna cura magica",tratto1:"Corpo Potenziato: gli impianti meccanici assorbono parte dei danni fisici. Riduci di 2 tutti i danni fisici subiti (minimo 1). Una volta per riposo lungo, puoi sostituire un tiro salvezza fallito con un successo automatico.",tratto2:"Sovraccarico (1/scontro, A.Bonus): forzi gli impianti oltre i limiti. Per 2 turni: +3 danni fisici e +2 Difesa. Al termine: Rallentato 1 turno.",malus:"AGI –1. Nessuna cura magica: recuperi HP solo da riposo o kit medici. Acqua/campi elettrici: Svantaggio su tutti i tiri fino a fine scontro.",mod_hp:0,mod_fl:0,mod_dif:0,color:"#4a5568"},
+  {nome:"Sintetico",flavor:"Costrutto organico-meccanico di Nova Era — non nato, progettato",bonus:"+2 INT, +2 RES, +1 a scelta (FOR/INT) / nessun recupero naturale HP / no cura magica",tratto1:"Architettura Modulare: non sei mai Esausto. Dopo ogni riposo breve, scegli 1 tra: +2 a un modificatore per il prossimo scontro, ripristino 20% FL, +2 Difesa per 1 scontro.",tratto2:"Protocollo di Emergenza: quando scendi a 0 HP, prima dei TS Mortali effettua 1 tiro RES DC 12. Successo: rimani in piedi con 1 HP (1/scontro).",malus:"Non recuperi HP da riposo o cura magica — solo da riparazioni (kit medici, Maestro Artigiano, strutture Nova Era). Vulnerabile al fulmine (+2 danni).",mod_hp:0,mod_fl:0,mod_dif:0,color:"#4dd9ff"},
+  {nome:"Eco del Pandora",flavor:"Sopravvissuto al Pandora — la corruzione è diventata la sua unica certezza",bonus:"+2 RES, +2 FOR, +1 INT / –2 CAR / aspetto segnato dalla corruzione",tratto1:"Metabolismo Corrotto: immune a veleni e corruzione del Flusso. Ogni danno di corruzione subito viene convertito in Flusso recuperato (1 danno = 1 FL, max 10 FL/turno).",tratto2:"Rilascio Controllato (1/scontro, A.Bonus): per 3 turni i tuoi attacchi infliggono +1d6 danni di corruzione. Al termine: subisci 1d4 danni di corruzione (convertiti in Flusso).",malus:"CAR –2 — la corruzione è visibile. Nelle zone civili sei trattato come una minaccia. Danni sacri/purificazione +50%. Nessuna cura divina.",mod_hp:0,mod_fl:0,mod_dif:0,color:"#8e44ad"},
 ];
 
 // ═══════════════════════════════════════════════════════
@@ -1366,9 +1369,9 @@ function GeneratorePage({ setPage }) {
     });
 
     // ═══ SALVA AUTOMATICAMENTE NELLA SCHEDA GIOCABILE ═══
-    // Costruisce un oggetto compatibile con il formato della SchedaGiocabile
+    const newId = Date.now();
     const schedaPG = {
-      id: Date.now(),
+      id: newId,
       nome: pgName || "Senza Nome",
       classeNome: c.nome,
       razzaNome: r.nome,
@@ -1393,13 +1396,20 @@ function GeneratorePage({ setPage }) {
     };
 
     try {
-      const existing = JSON.parse(localStorage.getItem("arcadia_schede_v1") || "[]");
+      let existing = [];
+      const raw = localStorage.getItem("arcadia_schede_v1");
+      if (raw) {
+        try { existing = JSON.parse(raw); if (!Array.isArray(existing)) existing = []; }
+        catch { existing = []; }
+      }
       existing.push(schedaPG);
       localStorage.setItem("arcadia_schede_v1", JSON.stringify(existing));
-      localStorage.setItem("arcadia_schede_selected_v1", String(schedaPG.id));
-      setSavedSchedaId(schedaPG.id);
+      localStorage.setItem("arcadia_schede_selected_v1", String(newId));
+      console.log("[Generatore] Scheda salvata:", schedaPG.nome, "ID:", newId, "Tot schede:", existing.length);
+      setSavedSchedaId(newId);
     } catch (e) {
-      console.error("Errore salvataggio scheda:", e);
+      console.error("[Generatore] Errore salvataggio scheda:", e);
+      alert("Impossibile salvare la scheda: " + e.message);
     }
 
     setStep(4);
@@ -1853,26 +1863,40 @@ function SchedaGiocabile() {
   }, []);
 
   const [personaggi, setPersonaggi] = useState(() => {
-    try { const s = localStorage.getItem("arcadia_schede_v1"); return s ? JSON.parse(s) : []; }
+    try {
+      const s = localStorage.getItem("arcadia_schede_v1");
+      const parsed = s ? JSON.parse(s) : [];
+      if (!Array.isArray(parsed)) return [];
+      console.log("[Scheda] Caricate", parsed.length, "schede dal localStorage");
+      return parsed;
+    }
     catch { return []; }
   });
   const [selectedId, setSelectedId] = useState(() => {
-    try { return localStorage.getItem("arcadia_schede_selected_v1") || null; }
+    try {
+      const v = localStorage.getItem("arcadia_schede_selected_v1");
+      console.log("[Scheda] Scheda pre-selezionata:", v);
+      return v || null;
+    }
     catch { return null; }
   });
   const [tab, setTab] = useState("info"); // info | combat | skills | progress | log
+  const [hasInitialized, setHasInitialized] = useState(false);
   const avatarRef = useRef(null);
 
+  // Scrive in localStorage solo DOPO il primo render (evita di sovrascrivere al mount)
   useEffect(() => {
+    if (!hasInitialized) { setHasInitialized(true); return; }
     try { localStorage.setItem("arcadia_schede_v1", JSON.stringify(personaggi)); } catch {}
-  }, [personaggi]);
+  }, [personaggi, hasInitialized]);
 
   useEffect(() => {
+    if (!hasInitialized) return;
     try {
-      if (selectedId) localStorage.setItem("arcadia_schede_selected_v1", selectedId);
+      if (selectedId) localStorage.setItem("arcadia_schede_selected_v1", String(selectedId));
       else localStorage.removeItem("arcadia_schede_selected_v1");
     } catch {}
-  }, [selectedId]);
+  }, [selectedId, hasInitialized]);
 
   const char = selectedId ? personaggi.find(p => String(p.id) === String(selectedId)) : null;
 
@@ -2050,6 +2074,9 @@ function SchedaGiocabile() {
   else if (razza.nome === "Fantasma") { stats.INT+=2; stats.PER+=2; stats.CAR+=1; stats.FOR-=3; }
   else if (razza.nome === "Nano del Sogno") { stats.RES+=2; stats.FOR+=2; stats.INT+=1; stats.AGI-=2; }
   else if (razza.nome === "Bestian") { stats.AGI+=2; stats.PER+=1; stats.FOR+=1; }
+  else if (razza.nome === "Cyborg") { stats.FOR+=2; stats.RES+=2; stats.INT+=1; stats.AGI-=1; }
+  else if (razza.nome === "Sintetico") { stats.INT+=2; stats.RES+=2; stats.FOR+=1; }
+  else if (razza.nome === "Eco del Pandora") { stats.RES+=2; stats.FOR+=2; stats.INT+=1; stats.CAR-=2; }
 
   const hpChange = (d) => {
     const v = Math.min(hp_max, Math.max(0, (char.hp_curr ?? hp_max) + d));
@@ -3634,7 +3661,7 @@ export default function App() {
           </nav>
 
           <div className="page">
-            <PageComponent />
+            <PageComponent key={page} />
           </div>
         </div>
       </div>
