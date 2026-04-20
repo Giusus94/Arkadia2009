@@ -481,6 +481,15 @@ const GlobalStyles = () => (
       0%   { background-position: -400px 0; }
       100% { background-position: 400px 0; }
     }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    @keyframes pulse-ring {
+      0%   { box-shadow: 0 0 0 0 rgba(255,77,109,0.5); }
+      70%  { box-shadow: 0 0 0 12px rgba(255,77,109,0); }
+      100% { box-shadow: 0 0 0 0 rgba(255,77,109,0); }
+    }
 
     .anim-slide-in { animation: slide-in 0.3s ease forwards; }
     .anim-fade-in  { animation: fade-in  0.4s ease forwards; }
@@ -3377,8 +3386,16 @@ function BattlePage() {
   const [state, setState] = useState(() => {
     try {
       const s = localStorage.getItem("arcadia_battle_v1");
-      return s ? JSON.parse(s) : { tokens: [], round: 1, turnIdx: 0, mapBg: null, log: [] };
-    } catch { return { tokens: [], round: 1, turnIdx: 0, mapBg: null, log: [] }; }
+      const parsed = s ? JSON.parse(s) : null;
+      if (parsed) {
+        // Migrazione: se c'è turnIdx ma non currentTokenId, converti
+        if (parsed.turnIdx !== undefined && !parsed.currentTokenId && parsed.tokens?.[parsed.turnIdx]) {
+          parsed.currentTokenId = parsed.tokens[parsed.turnIdx].id;
+        }
+        return { tokens:[], round:1, currentTokenId:null, mapBg:null, log:[], ...parsed };
+      }
+      return { tokens: [], round: 1, currentTokenId: null, mapBg: null, log: [] };
+    } catch { return { tokens: [], round: 1, currentTokenId: null, mapBg: null, log: [] }; }
   });
 
   const [targetId, setTargetId] = useState(null);  // token cliccato (per menu azioni)
@@ -3393,6 +3410,8 @@ function BattlePage() {
   const [attackStat, setAttackStat] = useState("FOR");
   const [attackMode, setAttackMode] = useState(false); // true = cliccando scegli target
   const [pendingDodge, setPendingDodge] = useState(null); // { attId, defId, attTotal, damage, isCrit, pressione }
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [skillCasterId, setSkillCasterId] = useState(null); // chi lancia la skill
   const gridRef = useRef(null);
   const mapInputRef = useRef(null);
 
@@ -3565,36 +3584,59 @@ function BattlePage() {
     setState(s => {
       const tokens = s.tokens.map(t => ({
         ...t,
-        iniziativa: Math.floor(Math.random()*20) + 1 + (t.iniziativaBonus||0),
+        iniziativa: Math.floor(Math.random()*20) + 1 + modStat((t.stats||{}).AGI) + (bonusRank(t.rank)||0),
       }));
-      tokens.sort((a,b) => (b.iniziativa||0) - (a.iniziativa||0));
-      return { ...s, tokens, turnIdx: 0, round: 1 };
+      // Ordina per iniziativa discendente (parità: PG prima di PNG)
+      tokens.sort((a,b) => {
+        if ((b.iniziativa||0) !== (a.iniziativa||0)) return (b.iniziativa||0) - (a.iniziativa||0);
+        // parità: alleato > neutrale > nemico
+        const rank = { alleato: 0, neutrale: 1, nemico: 2 };
+        return (rank[a.faction]||1) - (rank[b.faction]||1);
+      });
+      const firstAlive = tokens.find(t => !t.dead);
+      return { ...s, tokens, currentTokenId: firstAlive?.id || null, round: 1 };
     });
-    addLog("Tiro iniziativa per tutti", "info");
+    addLog("Iniziativa tirata — ordine determinato", "info");
   };
 
   const nextTurn = () => {
     setState(s => {
       if (!s.tokens.length) return s;
-      const aliveIndices = s.tokens.map((t,i) => t.dead ? null : i).filter(i => i !== null);
-      if (!aliveIndices.length) return s;
-      const currentPos = aliveIndices.indexOf(s.turnIdx);
-      let nextPos = currentPos + 1;
+      const aliveTokens = s.tokens.filter(t => !t.dead);
+      if (!aliveTokens.length) return s;
+
+      // Trova l'indice del corrente nell'array ORDINATO (rispetta iniziativa)
+      const curIdx = aliveTokens.findIndex(t => t.id === s.currentTokenId);
+      let nextIdx = curIdx + 1;
       let newRound = s.round;
       let tokens = s.tokens;
-      if (nextPos >= aliveIndices.length) {
-        nextPos = 0;
-        newRound = s.round + 1;
-        // Reset reazioni a nuovo round + scala durate condizioni
-        tokens = tokens.map(t => ({ ...t, reactionUsed: false }));
+
+      if (curIdx === -1 || nextIdx >= aliveTokens.length) {
+        // Corrente non trovato (es. morto/rimosso) o fine round
+        nextIdx = 0;
+        if (curIdx !== -1) {
+          // Era una fine-round regolare
+          newRound = s.round + 1;
+          // Reset reazioni + scala durate condizioni
+          tokens = tokens.map(t => ({
+            ...t,
+            reactionUsed: false,
+            // TODO: scalare durate condizioni in futuro
+          }));
+        }
       }
-      const newIdx = aliveIndices[nextPos];
-      return { ...s, tokens, turnIdx: newIdx, round: newRound };
+
+      const nextToken = aliveTokens[nextIdx];
+      const newLog = [
+        { msg: `▶ Turno di ${nextToken.nome}${newRound !== s.round ? ` · Round ${newRound}` : ""}`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) },
+        ...(s.log || []).slice(0, 99),
+      ];
+      return { ...s, tokens, currentTokenId: nextToken.id, round: newRound, log: newLog };
     });
     // Applica effetti condizioni all'inizio del prossimo turno
     setTimeout(() => {
       setState(s => {
-        const nextT = s.tokens[s.turnIdx];
+        const nextT = s.tokens.find(t => t.id === s.currentTokenId);
         if (nextT) applyTurnStartEffects(nextT.id);
         return s;
       });
@@ -3603,7 +3645,7 @@ function BattlePage() {
 
   const resetBattle = () => {
     if (!confirm("Resettare completamente la battaglia? Tutti i token saranno rimossi.")) return;
-    setState({ tokens: [], round: 1, turnIdx: 0, mapBg: state.mapBg, log: [] });
+    setState({ tokens: [], round: 1, currentTokenId: null, mapBg: state.mapBg, log: [] });
   };
 
   // Applica danno/cura al target
@@ -3708,12 +3750,265 @@ function BattlePage() {
     return pen;
   };
 
+  // ═══════════════════════════════════════════════════════
+  // PARSER SKILL — estrae info meccaniche dal testo
+  // ═══════════════════════════════════════════════════════
+  // Una skill ha: { nome, costo, desc }. Il parser tenta di inferire:
+  // - flCost: costo in Flusso (es. "2" → 2, "1+✦" → 1 + scintilla)
+  // - actionType: "principale" | "bonus" | "reazione" | "passiva"
+  // - attackStat: se è un attacco, quale stat (FOR/AGI/INT/PER)
+  // - damageDice: es. "2d8+2"
+  // - healDice: se cura
+  // - targetType: "single" | "area" | "self" | "ally"
+  // - appliedConditions: lista di condizioni applicate sul bersaglio
+  // - duration: turni
+  // - isAOE: bool
+  const CONDITION_KEYWORDS = {
+    "Spaventato":["Spaventato","Spaventata","Terrore","Paura"],
+    "Stordito":["Stordito","Stordita","Stun"],
+    "Silenziato":["Silenziato","Silenziata","silenzio"],
+    "Sanguinante":["Sanguinante","Sanguinamento"],
+    "Rallentato":["Rallentato","Rallentata","Rallentamento"],
+    "Addormentato":["Addormentato","Dormiente","Sonno"],
+    "Paralizzato":["Paralizzato","Paralizzata","Paralisi"],
+    "Immobilizzato":["Immobilizzato","Immobilizzata","Imprigionato"],
+    "Avvelenato":["Avvelenato","Avvelenata","Veleno"],
+    "Bruciante":["Bruciante","Fuoco","Incendiato"],
+    "Esausto":["Esausto","Esaurita","Esausti"],
+    "Corrotto":["Corrotto","Corruzione"],
+    "Benedetto":["Benedetto","Benedizione","Blessed"],
+    "Concentrato":["Concentrato","Concentrazione"],
+  };
+
+  const parseSkill = (skill) => {
+    if (!skill) return null;
+    const nome = skill.nome || "";
+    const costo = String(skill.costo || "");
+    const desc = skill.desc || "";
+    const full = nome + " " + desc;
+
+    // Costo Flusso
+    const flMatch = costo.match(/(\d+)/);
+    const flCost = flMatch ? parseInt(flMatch[1]) : 0;
+    const needsScintilla = /✦|Scintilla/i.test(costo);
+
+    // Tipo azione (default: principale)
+    let actionType = "principale";
+    if (/A\.Bonus|Azione Bonus|a\.bonus/i.test(desc)) actionType = "bonus";
+    else if (/Reazione|Reaction/i.test(desc)) actionType = "reazione";
+    else if (/Passivo|Passiva|Passive/i.test(desc)) actionType = "passiva";
+
+    // Stat attacco
+    let attackStat = null;
+    if (/Attacco FOR/i.test(desc)) attackStat = "FOR";
+    else if (/Attacco AGI|Att AGI/i.test(desc)) attackStat = "AGI";
+    else if (/Attacco INT|Att INT/i.test(desc)) attackStat = "INT";
+    else if (/Attacco PER|Att PER/i.test(desc)) attackStat = "PER";
+    else if (/Attacco CAR|Att CAR/i.test(desc)) attackStat = "CAR";
+
+    // Dado danno (primo pattern NdN+N)
+    const damageDiceMatch = desc.match(/Danno[:\s]*(\d+d\d+(?:\+\d+)?)/i) ||
+                            desc.match(/(\d+d\d+(?:\+\d+)?)\s*(?:danni|danno)/i) ||
+                            desc.match(/(\d+d\d+(?:\+\d+)?)/);
+    const damageDice = damageDiceMatch ? damageDiceMatch[1] : null;
+
+    // Dado cura
+    const healMatch = desc.match(/(?:Cura|recupera(?:no)?|ripristina)[:\s]*(\d+d\d+(?:\+\d+)?|\d+)\s*HP/i);
+    const healDice = healMatch ? healMatch[1] : null;
+
+    // Area
+    const isAOE = /TUTTI|area|raggio|cono|entro\s+\d+m/i.test(desc);
+
+    // Target type
+    let targetType = "single";
+    if (isAOE) targetType = "area";
+    else if (/te stesso|su di te|alleato/i.test(desc)) targetType = "ally";
+    else if (/su sé|su di te/i.test(desc)) targetType = "self";
+
+    // Condizioni applicate
+    const appliedConditions = [];
+    for (const [cond, keywords] of Object.entries(CONDITION_KEYWORDS)) {
+      for (const kw of keywords) {
+        if (new RegExp("\\b"+kw+"\\b","i").test(desc)) {
+          appliedConditions.push(cond);
+          break;
+        }
+      }
+    }
+
+    // Durata in turni
+    const durMatch = desc.match(/(\d+)\s*(?:t\.|turni|turno)/i) || desc.match(/per\s+(\d+)\s*turni/i);
+    const duration = durMatch ? parseInt(durMatch[1]) : null;
+
+    return {
+      nome, costo, desc, flCost, needsScintilla, actionType,
+      attackStat, damageDice, healDice, isAOE, targetType,
+      appliedConditions, duration,
+    };
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // USA SKILL — applica effetti della skill
+  // ═══════════════════════════════════════════════════════
+  const useSkill = (casterId, skill, targetId) => {
+    if (!skill) return;
+    const parsed = parseSkill(skill);
+    if (!parsed) return;
+
+    setState(s => {
+      const caster = s.tokens.find(t => t.id === casterId);
+      if (!caster || caster.dead) return s;
+
+      // Condizioni bloccanti caster
+      const condCaster = caster.condizioni || [];
+      if (parsed.actionType !== "passiva" && (condCaster.includes("Stordito") || condCaster.includes("Paralizzato") || condCaster.includes("Addormentato"))) {
+        const newLog = { msg: `${caster.nome} non può usare ${parsed.nome}: è ${condCaster.find(c => ["Stordito","Paralizzato","Addormentato"].includes(c))}`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+
+      // Verifica costo Flusso
+      if (parsed.flCost > 0 && caster.fl_curr < parsed.flCost) {
+        const newLog = { msg: `${caster.nome} non ha abbastanza Flusso per ${parsed.nome} (richiede ${parsed.flCost}, ha ${caster.fl_curr})`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+
+      const target = targetId ? s.tokens.find(t => t.id === targetId) : caster;
+      if (parsed.targetType === "single" && !target) return s;
+
+      let logLines = [];
+      logLines.push(`✨ ${caster.nome} usa ${parsed.nome}${parsed.flCost>0?` (−${parsed.flCost} FL)`:""}`);
+
+      // Tokens modificati (partiamo da tutti i token)
+      let newTokens = s.tokens.map(t => {
+        // Paga il costo Flusso al caster
+        if (t.id === caster.id) {
+          return { ...t, fl_curr: Math.max(0, t.fl_curr - parsed.flCost) };
+        }
+        return t;
+      });
+
+      // Se è un attacco (ha attackStat e damageDice)
+      if (parsed.attackStat && parsed.damageDice && target && target.id !== caster.id) {
+        const roll = rollD20Adv(getAdvantage(caster, target));
+        const mod = modStat((caster.stats||{})[parsed.attackStat]);
+        const br = bonusRank(caster.rank);
+        const penCast = penalitaDaCondizioni(caster);
+        const attTotal = roll.value + mod + br + penCast;
+        const dif = target.dif || 10;
+        const isCrit = roll.value === 20;
+        const isFumble = roll.value === 1;
+        const hit = !isFumble && (isCrit || attTotal >= dif);
+
+        const advText = roll.adv ? ` [${roll.adv==="vantaggio"?"VAN":"SVA"} ${roll.rolls.join(",")}]` : "";
+        logLines.push(`🎲 Tiro ${parsed.attackStat}: d20=${roll.value}${advText} ${mod>=0?"+":""}${mod}${br>0?`+${br}`:""} = ${attTotal} vs DIF ${dif}`);
+
+        if (isFumble) {
+          logLines.push(`💀 FUMBLE`);
+        } else if (!hit) {
+          logLines.push(`✗ MISS`);
+        } else {
+          let dmg = rollDado(parsed.damageDice);
+          if (isCrit) { dmg += rollDado(parsed.damageDice); logLines.push(`💥 CRITICO x2`); }
+          logLines.push(`✓ HIT — danno: ${dmg}`);
+          const newHp = Math.max(0, target.hp_curr - dmg);
+          const dead = newHp === 0;
+          logLines.push(`💔 ${target.nome}: ${target.hp_curr} → ${newHp} HP${dead?" · K.O.!":""}`);
+
+          // Applica condizioni estratte
+          let appliedList = [];
+          const newTargetCond = [...(target.condizioni || [])];
+          for (const c of parsed.appliedConditions) {
+            if (!newTargetCond.includes(c)) {
+              newTargetCond.push(c);
+              appliedList.push(c);
+            }
+          }
+          if (appliedList.length) logLines.push(`⚡ Applicato: ${appliedList.join(", ")}`);
+
+          newTokens = newTokens.map(t =>
+            t.id === target.id ? { ...t, hp_curr: newHp, dead, condizioni: newTargetCond } : t
+          );
+
+          // Sync scheda
+          if (target.source === "scheda" && target.schedaId) {
+            try {
+              const raw = localStorage.getItem("arcadia_schede_v1");
+              const schede = raw ? JSON.parse(raw) : [];
+              const idx = schede.findIndex(sc => String(sc.id) === String(target.schedaId));
+              if (idx >= 0) { schede[idx].hp_curr = newHp; localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede)); }
+            } catch {}
+          }
+        }
+      }
+      // Se è una cura
+      else if (parsed.healDice) {
+        const healAmount = parsed.healDice.includes("d") ? rollDado(parsed.healDice) : parseInt(parsed.healDice);
+        const healTarget = parsed.targetType === "self" ? caster : (target || caster);
+        const newHp = Math.min(healTarget.hp_max, healTarget.hp_curr + healAmount);
+        logLines.push(`💚 ${healTarget.nome}: +${healAmount} HP → ${newHp}/${healTarget.hp_max}`);
+        newTokens = newTokens.map(t =>
+          t.id === healTarget.id ? { ...t, hp_curr: newHp, dead: newHp === 0 } : t
+        );
+        // Sync scheda
+        if (healTarget.source === "scheda" && healTarget.schedaId) {
+          try {
+            const raw = localStorage.getItem("arcadia_schede_v1");
+            const schede = raw ? JSON.parse(raw) : [];
+            const idx = schede.findIndex(sc => String(sc.id) === String(healTarget.schedaId));
+            if (idx >= 0) { schede[idx].hp_curr = newHp; localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede)); }
+          } catch {}
+        }
+      }
+      // Se è solo condizione applicata (no attacco, no cura)
+      else if (parsed.appliedConditions.length > 0 && target && target.id !== caster.id) {
+        const newCond = [...(target.condizioni||[])];
+        let appliedList = [];
+        for (const c of parsed.appliedConditions) {
+          if (!newCond.includes(c)) {
+            newCond.push(c);
+            appliedList.push(c);
+          }
+        }
+        if (appliedList.length) {
+          logLines.push(`⚡ ${target.nome}: applicato ${appliedList.join(", ")}${parsed.duration?` per ${parsed.duration}t`:""}`);
+          newTokens = newTokens.map(t => t.id === target.id ? { ...t, condizioni: newCond } : t);
+        }
+      }
+      // Altrimenti è un effetto non automatizzato: logga solo
+      else {
+        logLines.push(`(effetto non automatizzato — applica manualmente secondo la descrizione della skill)`);
+      }
+
+      // Sync caster (costo Flusso)
+      if (caster.source === "scheda" && caster.schedaId && parsed.flCost > 0) {
+        try {
+          const raw = localStorage.getItem("arcadia_schede_v1");
+          const schede = raw ? JSON.parse(raw) : [];
+          const idx = schede.findIndex(sc => String(sc.id) === String(caster.schedaId));
+          if (idx >= 0) {
+            schede[idx].fl_curr = Math.max(0, caster.fl_curr - parsed.flCost);
+            localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede));
+          }
+        } catch {}
+      }
+
+      const logEntries = logLines.map(msg => ({ msg, type:"skill", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+      return { ...s, tokens: newTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
+    });
+  };
+
   // Esegui attacco: attaccante → difensore con stat scelta
   const executeAttack = (attId, defId, stat, opts = {}) => {
+    // Protezione: non si può attaccare se stessi
+    if (attId === defId) {
+      addLog(`Auto-attacco bloccato — seleziona un bersaglio diverso`, "info");
+      return;
+    }
     setState(s => {
       const att = s.tokens.find(t => t.id === attId);
       const def = s.tokens.find(t => t.id === defId);
       if (!att || !def) return s;
+      if (att.id === def.id) return s; // doppio controllo
       if (att.dead || def.dead) return s;
 
       // Condizioni bloccanti per l'attaccante
@@ -3957,7 +4252,7 @@ function BattlePage() {
   };
 
   const target = targetId ? state.tokens.find(t => t.id === targetId) : null;
-  const currentToken = state.tokens[state.turnIdx];
+  const currentToken = state.tokens.find(t => t.id === state.currentTokenId);
   const iniziativaOrdered = [...state.tokens].sort((a,b) => (b.iniziativa||0) - (a.iniziativa||0));
 
   return (
@@ -3973,6 +4268,14 @@ function BattlePage() {
         <button className="btn btn-primary btn-sm" onClick={() => setShowAddPanel(true)}>+ Aggiungi Token</button>
         <button className="btn btn-gold btn-sm" onClick={rollIniziativa} disabled={!state.tokens.length}>🎲 Tira Iniziativa</button>
         <button className="btn btn-outline btn-sm" onClick={nextTurn} disabled={!state.tokens.length}>Prossimo Turno →</button>
+        <button className="btn btn-primary btn-sm" disabled={!currentToken || !currentToken.skills?.length}
+          onClick={() => {
+            if (!currentToken) return;
+            setSkillCasterId(currentToken.id);
+            setSkillPickerOpen(true);
+          }}>
+          ⚡ Skill {currentToken?.nome ? `(${currentToken.nome})` : ""}
+        </button>
         <label className="btn btn-outline btn-sm" style={{ cursor:"pointer" }}>
           🗺️ Carica Mappa
           <input ref={mapInputRef} type="file" accept="image/*" onChange={uploadMap} style={{ display:"none" }} />
@@ -4044,17 +4347,28 @@ function BattlePage() {
 
             {/* TOKEN */}
             {state.tokens.map(t => {
-              const isTurn = state.tokens[state.turnIdx]?.id === t.id;
+              const isTurn = state.currentTokenId === t.id;
               const isTarget = targetId === t.id;
+              const isAttacker = attackerId === t.id;
+              const isValidDodgeTarget = attackMode && attackerId && attackerId !== t.id && !t.dead;
               const factionGlow = t.faction === "alleato" ? "rgba(77,255,168,0.5)"
                 : t.faction === "nemico" ? "rgba(255,77,109,0.5)"
                 : "rgba(201,169,110,0.5)";
               return (
                 <div key={t.id}
-                  onMouseDown={e => onTokenMouseDown(e, t)}
+                  onMouseDown={e => { if (!attackMode) onTokenMouseDown(e, t); }}
                   onClick={e => {
                     e.stopPropagation();
-                    if (attackMode && attackerId && attackerId !== t.id) {
+                    if (attackMode && attackerId) {
+                      if (attackerId === t.id) {
+                        // Blocco auto-attacco: notifica e non fare niente
+                        addLog(`${t.nome} non può attaccare sé stesso`, "info");
+                        return;
+                      }
+                      if (t.dead) {
+                        addLog(`${t.nome} è già K.O. — seleziona un altro bersaglio`, "info");
+                        return;
+                      }
                       executeAttack(attackerId, t.id, attackStat);
                     } else {
                       setTargetId(t.id);
@@ -4067,21 +4381,48 @@ function BattlePage() {
                     width: CELL_SIZE,
                     height: CELL_SIZE,
                     padding: 3,
-                    cursor: dragId === t.id ? "grabbing" : "grab",
+                    cursor: attackMode
+                      ? (isAttacker ? "not-allowed" : isValidDodgeTarget ? "crosshair" : "not-allowed")
+                      : dragId === t.id ? "grabbing" : "grab",
                     zIndex: isTarget ? 20 : isTurn ? 15 : 10,
                   }}>
                   <div style={{
                     width:"100%", height:"100%", borderRadius:"50%",
                     background: t.avatar ? `url(${t.avatar}) center/cover` : t.color,
-                    border: `3px solid ${isTarget ? "var(--gold-bright)" : isTurn ? "var(--purple-bright)" : t.color}`,
-                    boxShadow: isTarget ? `0 0 18px var(--gold)` : isTurn ? `0 0 18px var(--purple)` : `0 0 8px ${factionGlow}`,
+                    border: `3px solid ${
+                      isAttacker ? "var(--red)" :
+                      isTarget ? "var(--gold-bright)" :
+                      isTurn ? "var(--purple-bright)" :
+                      t.color
+                    }`,
+                    boxShadow:
+                      isAttacker ? `0 0 22px rgba(255,77,109,0.9)` :
+                      isTarget ? `0 0 18px var(--gold)` :
+                      isTurn ? `0 0 18px var(--purple)` :
+                      isValidDodgeTarget ? `0 0 14px rgba(255,77,109,0.6)` :
+                      `0 0 8px ${factionGlow}`,
                     display:"flex", alignItems:"center", justifyContent:"center",
                     fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.72rem",
                     color:"white", textShadow:"0 1px 3px rgba(0,0,0,0.9)",
                     position:"relative",
                     opacity: t.dead ? 0.3 : 1,
                     filter: t.dead ? "grayscale(0.8)" : "none",
+                    transition: "box-shadow 0.2s, border-color 0.2s",
                   }}>
+                    {/* Icona attaccante o bersaglio */}
+                    {isAttacker && (
+                      <div style={{
+                        position:"absolute", top:-18, left:"50%", transform:"translateX(-50%)",
+                        fontSize:"1rem", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.8))",
+                      }}>⚔️</div>
+                    )}
+                    {isValidDodgeTarget && (
+                      <div style={{
+                        position:"absolute", inset:-6, borderRadius:"50%",
+                        border:"2px dashed var(--red)", animation:"spin 3s linear infinite",
+                        pointerEvents:"none",
+                      }} />
+                    )}
                     {!t.avatar && t.nome.slice(0,2).toUpperCase()}
                     {t.dead && <span style={{ position:"absolute", fontSize:"1.6rem" }}>💀</span>}
                     {/* Barra HP */}
@@ -4151,7 +4492,7 @@ function BattlePage() {
             {iniziativaOrdered.length === 0 ? (
               <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", fontStyle:"italic", padding:"0.5rem" }}>Nessun token in battaglia</div>
             ) : iniziativaOrdered.map(t => {
-              const isTurn = state.tokens[state.turnIdx]?.id === t.id;
+              const isTurn = state.currentTokenId === t.id;
               return (
                 <div key={t.id} onClick={() => setTargetId(t.id)}
                   style={{
@@ -4281,6 +4622,19 @@ function BattlePage() {
                       setTargetId(null);
                     }}>
                     🎯 Modalità puntamento (clicca sulla mappa)
+                  </button>
+                  <button className="btn btn-primary btn-sm" disabled={!attackerId}
+                    onClick={() => {
+                      if (!attackerId) return;
+                      const att = state.tokens.find(t => t.id === attackerId);
+                      if (!att || !att.skills?.length) {
+                        addLog(`${att?.nome || "Attaccante"} non ha skill utilizzabili`, "info");
+                        return;
+                      }
+                      setSkillCasterId(attackerId);
+                      setSkillPickerOpen(true);
+                    }}>
+                    ⚡ Usa Skill
                   </button>
                 </div>
                 {attackerId && (() => {
@@ -4413,6 +4767,143 @@ function BattlePage() {
               </div>
               {!canAfford && <div style={{ color:"var(--red)", fontSize:"0.72rem", marginTop:"0.5rem", textAlign:"right" }}>Flusso insufficiente</div>}
               {def.reactionUsed && <div style={{ color:"var(--red)", fontSize:"0.72rem", marginTop:"0.5rem", textAlign:"right" }}>Reazione già usata questo round</div>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL SKILL PICKER — scegli skill e bersaglio */}
+      {skillPickerOpen && skillCasterId && (() => {
+        const caster = state.tokens.find(t => t.id === skillCasterId);
+        if (!caster) { setSkillPickerOpen(false); setSkillCasterId(null); return null; }
+        const skills = caster.skills || [];
+        return (
+          <div onClick={() => { setSkillPickerOpen(false); setSkillCasterId(null); }}
+            style={{
+              position:"fixed", inset:0, background:"rgba(3,1,8,0.85)", zIndex:200,
+              display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+              backdropFilter:"blur(6px)",
+            }}>
+            <div onClick={e => e.stopPropagation()} className="card" style={{
+              padding:"1.5rem", maxWidth:640, width:"100%", maxHeight:"86vh", overflowY:"auto",
+              borderTop:"3px solid var(--purple)",
+            }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem" }}>
+                <div>
+                  <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.3rem", fontWeight:700, color:"var(--purple-bright)" }}>
+                    ⚡ Skill di {caster.nome}
+                  </div>
+                  <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+                    Flusso attuale: <strong style={{ color:"var(--flux)" }}>{caster.fl_curr}/{caster.fl_max}</strong>
+                  </div>
+                </div>
+                <button className="btn btn-outline btn-xs" onClick={() => { setSkillPickerOpen(false); setSkillCasterId(null); }}>✕ Chiudi</button>
+              </div>
+
+              {skills.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"2rem", color:"var(--text-dim)", fontStyle:"italic" }}>
+                  Nessuna skill disponibile.
+                </div>
+              ) : skills.map((sk, i) => {
+                const parsed = parseSkill(sk);
+                if (!parsed) return null;
+                const canAfford = caster.fl_curr >= parsed.flCost;
+                const needsTarget = parsed.attackStat || parsed.appliedConditions.length > 0;
+                const validTargets = state.tokens.filter(t => !t.dead && t.id !== caster.id);
+
+                const actionBadgeColor = {
+                  "principale": "var(--red)",
+                  "bonus": "var(--gold)",
+                  "reazione": "var(--flux)",
+                  "passiva": "var(--text-dim)",
+                }[parsed.actionType] || "var(--text-dim)";
+
+                return (
+                  <div key={i} style={{
+                    marginBottom:"0.75rem", padding:"0.9rem",
+                    background:"var(--panel2)", border:"1px solid var(--border)", borderRadius:6,
+                    opacity: canAfford ? 1 : 0.55,
+                  }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"0.4rem", gap:"0.5rem", flexWrap:"wrap" }}>
+                      <div style={{ flex:1, minWidth:200 }}>
+                        <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.95rem" }}>{parsed.nome}</div>
+                        <div style={{ display:"flex", gap:"0.3rem", marginTop:"0.25rem", flexWrap:"wrap" }}>
+                          <span style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:`${actionBadgeColor}20`, color:actionBadgeColor, fontFamily:"'Cinzel',serif", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                            {parsed.actionType}
+                          </span>
+                          <span style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:"rgba(77,217,255,0.15)", color:"var(--flux)", fontFamily:"'Cinzel',serif", fontWeight:600 }}>
+                            {parsed.flCost} FL{parsed.needsScintilla?" + ✦":""}
+                          </span>
+                          {parsed.attackStat && (
+                            <span style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:"rgba(255,77,109,0.15)", color:"var(--red)", fontFamily:"'Cinzel',serif", fontWeight:600 }}>
+                              Attacco {parsed.attackStat}
+                            </span>
+                          )}
+                          {parsed.damageDice && (
+                            <span style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:"rgba(140,110,255,0.15)", color:"var(--purple-bright)" }}>
+                              Danno {parsed.damageDice}
+                            </span>
+                          )}
+                          {parsed.healDice && (
+                            <span style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:"rgba(77,255,168,0.15)", color:"var(--green)" }}>
+                              Cura {parsed.healDice}
+                            </span>
+                          )}
+                          {parsed.appliedConditions.map(c => (
+                            <span key={c} style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:"rgba(255,184,77,0.15)", color:"var(--amber)" }}>
+                              {c}
+                            </span>
+                          ))}
+                          {parsed.isAOE && (
+                            <span style={{ fontSize:"0.65rem", padding:"0.1rem 0.5rem", borderRadius:3, background:"rgba(201,169,110,0.15)", color:"var(--gold)" }}>
+                              Area
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", lineHeight:1.5, marginBottom:"0.6rem" }}>
+                      {parsed.desc}
+                    </div>
+
+                    {/* Pulsanti azione */}
+                    {parsed.actionType === "passiva" ? (
+                      <div style={{ fontSize:"0.72rem", color:"var(--text-mute)", fontStyle:"italic" }}>
+                        Effetto passivo — sempre attivo
+                      </div>
+                    ) : needsTarget ? (
+                      <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center" }}>
+                        <select className="input-field" id={`tgt-${i}`} style={{ flex:1, minWidth:150, fontSize:"0.82rem" }} defaultValue="">
+                          <option value="">Scegli bersaglio...</option>
+                          {validTargets.map(t => (
+                            <option key={t.id} value={t.id}>{t.nome} (HP {t.hp_curr}/{t.hp_max})</option>
+                          ))}
+                        </select>
+                        <button className="btn btn-primary btn-sm" disabled={!canAfford}
+                          onClick={() => {
+                            const sel = document.getElementById(`tgt-${i}`);
+                            const tgtId = sel?.value;
+                            if (!tgtId) { alert("Scegli un bersaglio prima di lanciare la skill."); return; }
+                            useSkill(caster.id, sk, tgtId);
+                            setSkillPickerOpen(false); setSkillCasterId(null); setTargetId(null);
+                          }}>
+                          Usa
+                        </button>
+                      </div>
+                    ) : (
+                      <button className="btn btn-primary btn-sm" disabled={!canAfford}
+                        onClick={() => {
+                          useSkill(caster.id, sk, caster.id);
+                          setSkillPickerOpen(false); setSkillCasterId(null); setTargetId(null);
+                        }}>
+                        Usa su te stesso
+                      </button>
+                    )}
+                    {!canAfford && <div style={{ color:"var(--red)", fontSize:"0.68rem", marginTop:"0.3rem" }}>Flusso insufficiente</div>}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
