@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { NPCS, BESTIARIO, ARSENALE } from "./compendio_data.js";
+import { NPCS, BESTIARIO, ARSENALE } from "../compendio.js";
 
 // ═══════════════════════════════════════════════════════
 // DATI
