@@ -3484,6 +3484,11 @@ function BattlePage() {
       skills: cls.skills, // le skill della classe
       reactionUsed: false, // reazione usata questo round
       pressione: { targetId: null, gradino: 0 }, // accumulo pressione
+      velocita: cls.vel + (razza.nome === "Nano del Sogno" ? -1 : 0), // metri per turno
+      movimentoUsato: 0, // metri mossi questo turno
+      azionePrincipaleUsata: false,
+      azioneBonusUsata: false,
+      difendersi: false, // +2 DIF fino al prossimo turno
       x: 2 + (state.tokens.filter(t => t.faction==="alleato").length % 4),
       y: 2,
       dead: false,
@@ -3513,6 +3518,11 @@ function BattlePage() {
       condizioni: [],
       reactionUsed: false,
       pressione: { targetId: null, gradino: 0 },
+      velocita: bestia.velocita || 6,
+      movimentoUsato: 0,
+      azionePrincipaleUsata: false,
+      azioneBonusUsata: false,
+      difendersi: false,
       x: 15 + (state.tokens.filter(t => t.faction==="nemico").length % 3),
       y: 7,
       dead: false,
@@ -3544,6 +3554,11 @@ function BattlePage() {
       condizioni: [],
       reactionUsed: false,
       pressione: { targetId: null, gradino: 0 },
+      velocita: npc.velocita || 6,
+      movimentoUsato: 0,
+      azionePrincipaleUsata: false,
+      azioneBonusUsata: false,
+      difendersi: false,
       x: 10,
       y: 7,
       dead: false,
@@ -3574,6 +3589,11 @@ function BattlePage() {
       condizioni: [],
       reactionUsed: false,
       pressione: { targetId: null, gradino: 0 },
+      velocita: 6,
+      movimentoUsato: 0,
+      azionePrincipaleUsata: false,
+      azioneBonusUsata: false,
+      difendersi: false,
       x: 10, y: 7, dead: false,
     };
     setState(s => ({ ...s, tokens: [...s.tokens, newTok] }));
@@ -3588,6 +3608,11 @@ function BattlePage() {
       const tokens = s.tokens.map(t => ({
         ...t,
         iniziativa: Math.floor(Math.random()*20) + 1 + modStat((t.stats||{}).AGI) + (bonusRank(t.rank)||0),
+        movimentoUsato: 0,
+        azionePrincipaleUsata: false,
+        azioneBonusUsata: false,
+        reactionUsed: false,
+        difendersi: false,
       }));
       // Ordina per iniziativa discendente (parità: PG prima di PNG)
       tokens.sort((a,b) => {
@@ -3630,6 +3655,23 @@ function BattlePage() {
       }
 
       const nextToken = aliveTokens[nextIdx];
+
+      // Reset flag turno sul token che sta per agire (azioni, movimento)
+      tokens = tokens.map(t => {
+        if (t.id === nextToken.id) {
+          return {
+            ...t,
+            movimentoUsato: 0,
+            azionePrincipaleUsata: false,
+            azioneBonusUsata: false,
+            difendersi: t.difendersi, // +2 DIF scade all'inizio del turno del tuo prossimo turno → lo togliamo ora
+          };
+        }
+        return t;
+      });
+      // Rimuovi il bonus "Difendersi" se questo token lo aveva attivo l'ultima volta
+      tokens = tokens.map(t => t.id === nextToken.id && t.difendersi ? { ...t, difendersi: false, dif: t.dif - 2 } : t);
+
       const newLog = [
         { msg: `▶ Turno di ${nextToken.nome}${newRound !== s.round ? ` · Round ${newRound}` : ""}`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) },
         ...(s.log || []).slice(0, 99),
@@ -3873,17 +3915,34 @@ function BattlePage() {
         return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
       }
 
+      // Blocca se l'azione richiesta è già stata usata questo turno
+      if (parsed.actionType === "principale" && caster.azionePrincipaleUsata) {
+        const newLog = { msg: `${caster.nome} ha già usato l'Azione Principale in questo turno`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+      if (parsed.actionType === "bonus" && caster.azioneBonusUsata) {
+        const newLog = { msg: `${caster.nome} ha già usato l'Azione Bonus in questo turno`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+      if (parsed.actionType === "reazione" && caster.reactionUsed) {
+        const newLog = { msg: `${caster.nome} ha già usato la Reazione in questo round`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+
       const target = targetId ? s.tokens.find(t => t.id === targetId) : caster;
       if (parsed.targetType === "single" && !target) return s;
 
       let logLines = [];
       logLines.push(`✨ ${caster.nome} usa ${parsed.nome}${parsed.flCost>0?` (−${parsed.flCost} FL)`:""}`);
 
-      // Tokens modificati (partiamo da tutti i token)
+      // Tokens modificati (partiamo da tutti i token). Paga FL + marca azione usata sul caster
       let newTokens = s.tokens.map(t => {
-        // Paga il costo Flusso al caster
         if (t.id === caster.id) {
-          return { ...t, fl_curr: Math.max(0, t.fl_curr - parsed.flCost) };
+          const patch = { fl_curr: Math.max(0, t.fl_curr - parsed.flCost) };
+          if (parsed.actionType === "principale") patch.azionePrincipaleUsata = true;
+          else if (parsed.actionType === "bonus") patch.azioneBonusUsata = true;
+          else if (parsed.actionType === "reazione") patch.reactionUsed = true;
+          return { ...t, ...patch };
         }
         return t;
       });
@@ -4019,6 +4078,12 @@ function BattlePage() {
         return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
       }
 
+      // Attaccare è un'Azione Principale: se già usata, blocca
+      if (att.azionePrincipaleUsata) {
+        const newLog = { msg: `${att.nome} ha già usato l'Azione Principale in questo turno`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+
       // Determina vantaggio/svantaggio
       const adv = getAdvantage(att, def);
       // Tira 1d20
@@ -4088,9 +4153,10 @@ function BattlePage() {
             attId, defId, attTotal, damage: dmg, isCrit, pressione,
             logLinesPending: logLines,
           }), 0);
-          // Aggiorna log e aggiorna pressione attaccante, ma NON applichiamo ancora danno
+          // Aggiorna log. Marca Azione Principale usata sull'attaccante (il danno si applica dopo la decisione del difensore)
           const logEntries = logLines.concat([`⏸️ ${def.nome} può tentare Schivata Attiva (1 FL)`]).map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
-          return { ...s, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
+          const markedTokens = s.tokens.map(t => t.id === att.id ? { ...t, azionePrincipaleUsata: true } : t);
+          return { ...s, tokens: markedTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
         }
 
         // Applica danno normalmente
@@ -4100,7 +4166,7 @@ function BattlePage() {
 
         const newTokens = s.tokens.map(t => {
           if (t.id === def.id) return { ...t, hp_curr: newHp, dead };
-          if (t.id === att.id) return { ...t, pressione };
+          if (t.id === att.id) return { ...t, pressione, azionePrincipaleUsata: true };
           return t;
         });
         const logEntries = logLines.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
@@ -4124,7 +4190,7 @@ function BattlePage() {
       } else {
         pressione = { targetId: null, gradino: 0 };
       }
-      const newTokens = s.tokens.map(t => t.id === att.id ? { ...t, pressione } : t);
+      const newTokens = s.tokens.map(t => t.id === att.id ? { ...t, pressione, azionePrincipaleUsata: true } : t);
       const logEntries = logLines.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
       return { ...s, tokens: newTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
     });
@@ -4195,6 +4261,30 @@ function BattlePage() {
     setPendingDodge(null);
   };
 
+  // Azione "Difenditi": +2 Difesa fino all'inizio del prossimo turno del token. Consuma Azione Principale.
+  const azioneDifenditi = (tokenId) => {
+    setState(s => {
+      const t = s.tokens.find(x => x.id === tokenId);
+      if (!t || t.dead) return s;
+      if (t.azionePrincipaleUsata) {
+        const newLog = { msg: `${t.nome} ha già usato l'Azione Principale`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+      if (t.difendersi) {
+        const newLog = { msg: `${t.nome} sta già difendendosi`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+      const newTokens = s.tokens.map(x => x.id === tokenId ? {
+        ...x,
+        difendersi: true,
+        dif: (x.dif || 10) + 2,
+        azionePrincipaleUsata: true,
+      } : x);
+      const newLog = { msg: `🛡️ ${t.nome} si difende: +2 DIF fino al prossimo turno`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+      return { ...s, tokens: newTokens, log: [newLog, ...(s.log||[]).slice(0,99)] };
+    });
+  };
+
   // Applica effetti a inizio turno del token corrente (danni da condizioni)
   const applyTurnStartEffects = (tokenId) => {
     setState(s => {
@@ -4217,16 +4307,36 @@ function BattlePage() {
     });
   };
 
-  // Drag & drop token sulla griglia
+  // Drag & drop token sulla griglia con vincolo di Velocità
+  // Regole: Azione Principale = Muoviti fino a Velocità metri
+  //         Azione Bonus      = Muoviti altra metà Velocità (arrotondata per difetto)
+  //         Totale max = Velocità + Vel/2
+  // Distanza griglia = Chebyshev (max di |dx|,|dy|) = 1 cella = 1m
+  const dragStartRef = useRef(null); // { tokenId, x0, y0 }
   const onTokenMouseDown = (e, t) => {
     if (e.button !== 0) return;
+    if (t.dead) return;
+    // Blocca drag se il token non è in turno (o se non c'è iniziativa attiva, permetti libero posizionamento)
+    if (state.currentTokenId && t.id !== state.currentTokenId) {
+      addLog(`${t.nome} non è in turno — solo ${currentToken?.nome || "il token in turno"} può muoversi`, "info");
+      return;
+    }
+    // Blocca se ha già usato sia azione principale che bonus (=0 movimento residuo)
+    const vel = t.velocita || 6;
+    const budget = vel + Math.floor(vel/2);
+    if ((t.movimentoUsato||0) >= budget) {
+      addLog(`${t.nome} ha esaurito il movimento (${t.movimentoUsato}/${budget}m)`, "info");
+      return;
+    }
     const rect = gridRef.current.getBoundingClientRect();
     setDragId(t.id);
+    dragStartRef.current = { tokenId: t.id, x0: t.x, y0: t.y };
     setDragOffset({
       x: e.clientX - rect.left - t.x*CELL_SIZE,
       y: e.clientY - rect.top - t.y*CELL_SIZE,
     });
     e.preventDefault();
+    e.stopPropagation();
   };
 
   const onGridMouseMove = (e) => {
@@ -4234,11 +4344,56 @@ function BattlePage() {
     const rect = gridRef.current.getBoundingClientRect();
     const nx = Math.max(0, Math.min(GRID_W - 1, Math.round((e.clientX - rect.left - dragOffset.x)/CELL_SIZE)));
     const ny = Math.max(0, Math.min(GRID_H - 1, Math.round((e.clientY - rect.top - dragOffset.y)/CELL_SIZE)));
+    // Preview: aggiorno solo posizione, NO movimentoUsato (si aggiorna a drop)
     updateToken(dragId, { x: nx, y: ny });
   };
 
   const onGridMouseUp = () => {
-    if (dragId) setDragId(null);
+    if (!dragId) return;
+    const start = dragStartRef.current;
+    if (!start || start.tokenId !== dragId) {
+      setDragId(null);
+      return;
+    }
+    // Calcola distanza Chebyshev e verifica vincolo Velocità
+    setState(s => {
+      const t = s.tokens.find(x => x.id === dragId);
+      if (!t) return s;
+      const dx = Math.abs(t.x - start.x0);
+      const dy = Math.abs(t.y - start.y0);
+      const dist = Math.max(dx, dy); // metri (= celle Chebyshev)
+      if (dist === 0) return s; // non mosso
+      const vel = t.velocita || 6;
+      const usedBefore = t.movimentoUsato || 0;
+      const principalLeft = Math.max(0, vel - usedBefore);
+      const bonusLeft = t.azioneBonusUsata ? 0 : Math.floor(vel/2);
+      const budgetLeft = principalLeft + bonusLeft;
+
+      if (dist > budgetLeft) {
+        // Ripristina posizione iniziale
+        const newTokens = s.tokens.map(x => x.id === t.id ? { ...x, x: start.x0, y: start.y0 } : x);
+        const newLog = { msg: `✗ ${t.nome}: ${dist}m > budget ${budgetLeft}m — movimento annullato`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, tokens: newTokens, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+
+      // Scala il costo: prima Azione Principale, poi Azione Bonus
+      const newUsed = usedBefore + dist;
+      let newPrincipale = t.azionePrincipaleUsata;
+      let newBonus = t.azioneBonusUsata;
+      if (!newPrincipale && newUsed > 0) newPrincipale = true; // movimento consuma Azione Principale
+      if (newUsed > vel) newBonus = true; // eccesso oltre Velocità usa anche Azione Bonus
+
+      const newTokens = s.tokens.map(x => x.id === t.id ? {
+        ...x,
+        movimentoUsato: newUsed,
+        azionePrincipaleUsata: newPrincipale,
+        azioneBonusUsata: newBonus,
+      } : x);
+      const newLog = { msg: `🏃 ${t.nome} si muove ${dist}m (totale ${newUsed}/${vel}${newBonus?` + bonus ${Math.floor(vel/2)}`:""})`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+      return { ...s, tokens: newTokens, log: [newLog, ...(s.log||[]).slice(0,99)] };
+    });
+    dragStartRef.current = null;
+    setDragId(null);
   };
 
   // Upload mappa
@@ -4308,12 +4463,51 @@ function BattlePage() {
             <div style={{ fontSize:"0.75rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
               {currentToken.hp_curr}/{currentToken.hp_max} HP · {currentToken.fl_curr||0}/{currentToken.fl_max||0} FL
               {currentToken.iniziativa !== null && currentToken.iniziativa !== undefined && ` · Iniziativa ${currentToken.iniziativa}`}
-              {currentToken.reactionUsed && " · Reazione usata"}
             </div>
+            {/* Budget Movimento + Azioni */}
+            {(() => {
+              const vel = currentToken.velocita || 6;
+              const used = currentToken.movimentoUsato || 0;
+              const budget = vel + Math.floor(vel/2);
+              const residuo = Math.max(0, budget - used);
+              const pct = Math.min(100, (used / budget) * 100);
+              return (
+                <div style={{ marginTop:"0.4rem", display:"flex", flexWrap:"wrap", gap:"0.4rem", alignItems:"center" }}>
+                  <div style={{ flex:"0 0 160px" }}>
+                    <div style={{ fontSize:"0.65rem", color:"var(--text-dim)", marginBottom:"0.15rem" }}>
+                      🏃 Movimento {used}/{vel}m {used>vel && `(+${used-vel} bonus)`}
+                    </div>
+                    <div style={{ height:5, background:"var(--panel)", borderRadius:3, overflow:"hidden" }}>
+                      <div style={{
+                        height:"100%",
+                        width:`${pct}%`,
+                        background: used <= vel ? "var(--green)" : "var(--gold)",
+                        transition:"width 0.3s",
+                      }}/>
+                    </div>
+                  </div>
+                  <span style={{ fontSize:"0.65rem", color: currentToken.azionePrincipaleUsata ? "var(--red)" : "var(--green)", fontFamily:"'Cinzel',serif", fontWeight:700 }}>
+                    {currentToken.azionePrincipaleUsata ? "✗" : "✓"} Principale
+                  </span>
+                  <span style={{ fontSize:"0.65rem", color: currentToken.azioneBonusUsata ? "var(--red)" : "var(--green)", fontFamily:"'Cinzel',serif", fontWeight:700 }}>
+                    {currentToken.azioneBonusUsata ? "✗" : "✓"} Bonus
+                  </span>
+                  <span style={{ fontSize:"0.65rem", color: currentToken.reactionUsed ? "var(--red)" : "var(--green)", fontFamily:"'Cinzel',serif", fontWeight:700 }}>
+                    {currentToken.reactionUsed ? "✗" : "✓"} Reazione
+                  </span>
+                  {currentToken.difendersi && <span style={{ fontSize:"0.65rem", color:"var(--flux)", fontFamily:"'Cinzel',serif", fontWeight:700 }}>🛡️ Difendersi</span>}
+                </div>
+              );
+            })()}
           </div>
-          <button className="btn btn-primary" onClick={nextTurn} style={{ whiteSpace:"nowrap" }}>
-            Fine Turno →
-          </button>
+          <div style={{ display:"flex", flexDirection:"column", gap:"0.3rem", alignItems:"stretch" }}>
+            <button className="btn btn-outline btn-sm" onClick={() => azioneDifenditi(currentToken.id)} disabled={currentToken.azionePrincipaleUsata || currentToken.difendersi} title="Azione Principale: +2 DIF fino al prossimo turno">
+              🛡️ Difenditi
+            </button>
+            <button className="btn btn-primary" onClick={nextTurn} style={{ whiteSpace:"nowrap" }}>
+              Fine Turno →
+            </button>
+          </div>
         </div>
       )}
 
@@ -4391,17 +4585,19 @@ function BattlePage() {
                 ? `url(${state.mapBg})`
                 : `linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)`,
               backgroundSize: state.mapBg
-                ? "cover"
+                ? `${GRID_W * CELL_SIZE}px ${GRID_H * CELL_SIZE}px`
                 : `${CELL_SIZE}px ${CELL_SIZE}px, ${CELL_SIZE}px ${CELL_SIZE}px`,
-              backgroundPosition: "center",
+              backgroundPosition: "0 0",
+              backgroundRepeat: state.mapBg ? "no-repeat" : "repeat",
               userSelect:"none",
             }}>
             {/* Overlay griglia quando c'è mappa */}
             {state.mapBg && (
               <div style={{
                 position:"absolute", inset:0, pointerEvents:"none",
-                backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+                backgroundImage: `linear-gradient(rgba(255,255,255,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.15) 1px, transparent 1px)`,
                 backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
+                backgroundPosition: "0 0",
               }} />
             )}
 
@@ -4416,7 +4612,7 @@ function BattlePage() {
                 : "rgba(201,169,110,0.5)";
               return (
                 <div key={t.id}
-                  onMouseDown={e => { if (!hasAttacker) onTokenMouseDown(e, t); }}
+                  onMouseDown={e => onTokenMouseDown(e, t)}
                   onClick={e => {
                     e.stopPropagation();
                     // Shift+click = ispeziona (no cambio attaccante)
@@ -4661,10 +4857,12 @@ function BattlePage() {
 
             {/* Azioni principali */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.4rem", marginBottom:"0.75rem" }}>
-              <button className="btn btn-danger" onClick={() => {
-                executeAttack(attacker.id, actionTarget.id, attackStat);
-                setActionTargetId(null);
-              }}>
+              <button className="btn btn-danger" disabled={attacker.azionePrincipaleUsata}
+                title={attacker.azionePrincipaleUsata ? "Azione Principale già usata questo turno" : "Tiro 1d20 + mod(stat) + Rank vs DIF"}
+                onClick={() => {
+                  executeAttack(attacker.id, actionTarget.id, attackStat);
+                  setActionTargetId(null);
+                }}>
                 🎲 Tira Attacco
               </button>
               <button className="btn btn-primary" disabled={!attacker.skills?.length} onClick={() => {
@@ -4675,6 +4873,11 @@ function BattlePage() {
                 ⚡ Usa Skill
               </button>
             </div>
+            {attacker.azionePrincipaleUsata && (
+              <div style={{ fontSize:"0.72rem", color:"var(--red)", marginBottom:"0.5rem", textAlign:"center" }}>
+                ⚠️ {attacker.nome} ha già usato l'Azione Principale — solo skill con tag [Bonus] o [Reazione] o "Fine Turno" rimangono
+              </div>
+            )}
 
             {/* Azioni manuali GM (danno/cura/condizioni) */}
             <details>
@@ -4868,6 +5071,12 @@ function BattlePage() {
                 const parsed = parseSkill(sk);
                 if (!parsed) return null;
                 const canAfford = caster.fl_curr >= parsed.flCost;
+                // Verifica se l'azione richiesta dalla skill è già stata usata
+                const actionBlocked =
+                  (parsed.actionType === "principale" && caster.azionePrincipaleUsata) ||
+                  (parsed.actionType === "bonus" && caster.azioneBonusUsata) ||
+                  (parsed.actionType === "reazione" && caster.reactionUsed);
+                const canUse = canAfford && !actionBlocked && parsed.actionType !== "passiva";
                 const needsTarget = parsed.attackStat || parsed.appliedConditions.length > 0;
                 const validTargets = state.tokens.filter(t => !t.dead && t.id !== caster.id);
 
@@ -4881,8 +5090,8 @@ function BattlePage() {
                 return (
                   <div key={i} style={{
                     marginBottom:"0.75rem", padding:"0.9rem",
-                    background:"var(--panel2)", border:"1px solid var(--border)", borderRadius:6,
-                    opacity: canAfford ? 1 : 0.55,
+                    background:"var(--panel2)", border:`1px solid ${actionBlocked ? "rgba(255,77,109,0.4)" : "var(--border)"}`, borderRadius:6,
+                    opacity: canUse ? 1 : 0.55,
                   }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"0.4rem", gap:"0.5rem", flexWrap:"wrap" }}>
                       <div style={{ flex:1, minWidth:200 }}>
@@ -4940,7 +5149,7 @@ function BattlePage() {
                             <option key={t.id} value={t.id}>{t.nome} (HP {t.hp_curr}/{t.hp_max})</option>
                           ))}
                         </select>
-                        <button className="btn btn-primary btn-sm" disabled={!canAfford}
+                        <button className="btn btn-primary btn-sm" disabled={!canUse}
                           onClick={() => {
                             const sel = document.getElementById(`tgt-${i}`);
                             const tgtId = sel?.value || skillTargetId;
@@ -4952,7 +5161,7 @@ function BattlePage() {
                         </button>
                       </div>
                     ) : (
-                      <button className="btn btn-primary btn-sm" disabled={!canAfford}
+                      <button className="btn btn-primary btn-sm" disabled={!canUse}
                         onClick={() => {
                           useSkill(caster.id, sk, caster.id);
                           setSkillPickerOpen(false); setSkillTargetId(null);
@@ -4961,6 +5170,9 @@ function BattlePage() {
                       </button>
                     )}
                     {!canAfford && <div style={{ color:"var(--red)", fontSize:"0.68rem", marginTop:"0.3rem" }}>Flusso insufficiente</div>}
+                    {actionBlocked && <div style={{ color:"var(--red)", fontSize:"0.68rem", marginTop:"0.3rem" }}>
+                      ⚠️ Azione {parsed.actionType === "principale" ? "Principale" : parsed.actionType === "bonus" ? "Bonus" : "Reazione"} già usata
+                    </div>}
                   </div>
                 );
               })}
