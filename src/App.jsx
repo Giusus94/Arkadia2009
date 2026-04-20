@@ -4287,6 +4287,42 @@ function BattlePage() {
         <button className="btn btn-danger btn-sm" onClick={resetBattle}>🗑️ Reset</button>
       </div>
 
+      {/* Banner TURNO ATTUALE prominente */}
+      {currentToken && !currentToken.dead && (
+        <div style={{
+          display:"flex", alignItems:"center", gap:"1rem", flexWrap:"wrap",
+          padding:"0.9rem 1.1rem", marginBottom:"1rem",
+          background:"linear-gradient(90deg, rgba(140,110,255,0.15) 0%, rgba(140,110,255,0.03) 100%)",
+          borderLeft:"4px solid var(--purple)",
+          borderRadius:"0 6px 6px 0",
+        }}>
+          <div style={{
+            width:48, height:48, borderRadius:"50%",
+            background: currentToken.avatar ? `url(${currentToken.avatar}) center/cover` : currentToken.color,
+            border:"3px solid var(--purple-bright)",
+            boxShadow:"0 0 20px var(--purple)",
+            animation:"pulse-ring 2s infinite",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            color:"white", fontFamily:"'Cinzel',serif", fontWeight:700,
+            flexShrink:0,
+          }}>
+            {!currentToken.avatar && currentToken.nome.slice(0,2).toUpperCase()}
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:"0.68rem", color:"var(--purple-bright)", textTransform:"uppercase", letterSpacing:"0.14em", fontFamily:"'Cinzel',serif", fontWeight:700 }}>▶ Turno di · Round {state.round}</div>
+            <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.3rem", fontWeight:700, color:"var(--text-bright)" }}>{currentToken.nome}</div>
+            <div style={{ fontSize:"0.75rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+              {currentToken.hp_curr}/{currentToken.hp_max} HP · {currentToken.fl_curr||0}/{currentToken.fl_max||0} FL
+              {currentToken.iniziativa !== null && currentToken.iniziativa !== undefined && ` · Iniziativa ${currentToken.iniziativa}`}
+              {currentToken.reactionUsed && " · Reazione usata"}
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={nextTurn} style={{ whiteSpace:"nowrap" }}>
+            Fine Turno →
+          </button>
+        </div>
+      )}
+
       {/* Banner modalità attacco */}
       {attackMode && attackerId && (() => {
         const att = state.tokens.find(t => t.id === attackerId);
@@ -4371,7 +4407,16 @@ function BattlePage() {
                       }
                       executeAttack(attackerId, t.id, attackStat);
                     } else {
+                      // Apri come BERSAGLIO. Pre-imposta l'attaccante come il token in turno (se valido e diverso dal target cliccato)
                       setTargetId(t.id);
+                      const curr = state.currentTokenId;
+                      const currToken = state.tokens.find(x => x.id === curr);
+                      if (curr && curr !== t.id && currToken && !currToken.dead) {
+                        setAttackerId(curr);
+                      } else {
+                        // Cliccato proprio sul token in turno: diventa lui "attaccante" inteso come "che fa qualcosa"
+                        setAttackerId(null);
+                      }
                     }
                   }}
                   style={{
@@ -4494,7 +4539,16 @@ function BattlePage() {
             ) : iniziativaOrdered.map(t => {
               const isTurn = state.currentTokenId === t.id;
               return (
-                <div key={t.id} onClick={() => setTargetId(t.id)}
+                <div key={t.id} onClick={() => {
+                    setTargetId(t.id);
+                    const curr = state.currentTokenId;
+                    const currToken = state.tokens.find(x => x.id === curr);
+                    if (curr && curr !== t.id && currToken && !currToken.dead) {
+                      setAttackerId(curr);
+                    } else {
+                      setAttackerId(null);
+                    }
+                  }}
                   style={{
                     display:"flex", alignItems:"center", gap:"0.5rem",
                     padding:"0.4rem 0.5rem", marginBottom:"0.2rem",
@@ -4535,8 +4589,8 @@ function BattlePage() {
             padding:"1.5rem", maxWidth:520, width:"100%", maxHeight:"86vh", overflowY:"auto",
             borderTop:`4px solid ${target.color}`,
           }}>
-            {/* Header target */}
-            <div style={{ display:"flex", gap:"1rem", marginBottom:"1rem", alignItems:"center" }}>
+            {/* Header target — mostro chiaramente "Bersaglio" */}
+            <div style={{ display:"flex", gap:"1rem", marginBottom:"0.5rem", alignItems:"center" }}>
               <div style={{
                 width:72, height:72, borderRadius:"50%",
                 background: target.avatar ? `url(${target.avatar}) center/cover` : target.color,
@@ -4544,10 +4598,12 @@ function BattlePage() {
                 display:"flex", alignItems:"center", justifyContent:"center",
                 color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"1.2rem",
                 flexShrink:0,
+                boxShadow: `0 0 20px ${target.color}80`,
               }}>
                 {!target.avatar && target.nome.slice(0,2).toUpperCase()}
               </div>
               <div style={{ flex:1 }}>
+                <div style={{ fontSize:"0.68rem", color:"var(--gold)", textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'Cinzel',serif", fontWeight:700, marginBottom:"0.2rem" }}>🎯 Bersaglio</div>
                 <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.3rem", fontWeight:700, color:"var(--text-bright)" }}>{target.nome}</div>
                 <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", flexWrap:"wrap", marginTop:"0.3rem" }}>
                   {target.rank && <RankBadge rank={target.rank} size="sm" />}
@@ -4557,6 +4613,32 @@ function BattlePage() {
               </div>
               <button className="btn btn-outline btn-xs" onClick={() => setTargetId(null)}>✕</button>
             </div>
+
+            {/* Banner chiaro: chi è l'attaccante? */}
+            {currentToken && currentToken.id !== target.id && !currentToken.dead && (
+              <div style={{
+                padding:"0.6rem 0.9rem", marginBottom:"1rem",
+                background:"rgba(140,110,255,0.1)",
+                border:"1px solid var(--purple)",
+                borderRadius:6,
+                display:"flex", alignItems:"center", gap:"0.75rem",
+              }}>
+                <div style={{
+                  width:36, height:36, borderRadius:"50%",
+                  background: currentToken.avatar ? `url(${currentToken.avatar}) center/cover` : currentToken.color,
+                  border:`2px solid var(--purple)`,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.75rem",
+                  flexShrink:0,
+                }}>
+                  {!currentToken.avatar && currentToken.nome.slice(0,2).toUpperCase()}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:"0.68rem", color:"var(--purple-bright)", textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'Cinzel',serif", fontWeight:700 }}>⚔️ Attaccante (turno attuale)</div>
+                  <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.95rem" }}>{currentToken.nome}</div>
+                </div>
+              </div>
+            )}
 
             {/* Barre HP/FL */}
             <div style={{ marginBottom:"1rem" }}>
@@ -4591,21 +4673,46 @@ function BattlePage() {
             {/* ⚔️ TIRO D'ATTACCO — regole manuale v7 */}
             {target.stats && !target.dead && (
               <div style={{ marginBottom:"1rem", padding:"0.75rem", background:"rgba(255,77,109,0.06)", borderRadius:6, border:"1px solid rgba(255,77,109,0.3)" }}>
-                <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem", color:"var(--red)" }}>⚔️ Attacco dal manuale</div>
-                <p style={{ fontSize:"0.72rem", color:"var(--text-dim)", marginBottom:"0.5rem" }}>
-                  Seleziona chi attacca e con quale caratteristica — tiro 1d20 + mod + bonus Rank vs DIF {target.dif}
-                </p>
-                <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.5rem", flexWrap:"wrap" }}>
-                  <select className="input-field" value={attackerId || ""} onChange={e => setAttackerId(e.target.value || null)} style={{ flex:1, minWidth:150 }}>
-                    <option value="">Scegli attaccante...</option>
+                <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem", color:"var(--red)" }}>⚔️ Tiro d'Attacco</div>
+                {attackerId && (() => {
+                  const att = state.tokens.find(t => t.id === attackerId);
+                  if (!att) return null;
+                  const mod = modStat((att.stats||{})[attackStat]);
+                  const br = RANK_BDIF[att.rank] || 0;
+                  return (
+                    <div style={{ marginBottom:"0.5rem", fontSize:"0.82rem", color:"var(--text-bright)", padding:"0.5rem 0.7rem", background:"var(--panel)", borderRadius:4, border:"1px solid var(--border)" }}>
+                      <strong style={{ color:"var(--purple-bright)" }}>{att.nome}</strong> attacca <strong style={{ color:target.color }}>{target.nome}</strong>
+                      <div style={{ fontSize:"0.72rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+                        Tiro: 1d20 {mod>=0?"+":""}{mod} ({attackStat}){br>0?` +${br} Rank`:""} · Danno: {att.dado_danno || "1d6"} {mod>=0?"+":""}{mod} · vs DIF {target.dif}
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.5rem", flexWrap:"wrap", alignItems:"center" }}>
+                  <label style={{ fontSize:"0.72rem", color:"var(--text-dim)" }}>Caratteristica:</label>
+                  {["FOR","AGI","RES","INT","PER","CAR"].map(s => (
+                    <button key={s} onClick={() => setAttackStat(s)}
+                      style={{
+                        padding:"0.25rem 0.6rem", borderRadius:4, fontSize:"0.75rem",
+                        fontFamily:"'Cinzel',serif", fontWeight:700,
+                        border:`1px solid ${attackStat===s?"var(--red)":"var(--border)"}`,
+                        background: attackStat===s ? "rgba(255,77,109,0.2)" : "var(--panel)",
+                        color: attackStat===s ? "var(--red)" : "var(--text-dim)",
+                        cursor:"pointer",
+                      }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <details style={{ marginBottom:"0.5rem", fontSize:"0.75rem" }}>
+                  <summary style={{ cursor:"pointer", color:"var(--text-dim)" }}>Cambia attaccante (default: token in turno)</summary>
+                  <select className="input-field" value={attackerId || ""} onChange={e => setAttackerId(e.target.value || null)} style={{ marginTop:"0.4rem", fontSize:"0.82rem" }}>
+                    <option value="">Nessuno</option>
                     {state.tokens.filter(t => t.id !== target.id && !t.dead).map(t => (
                       <option key={t.id} value={t.id}>{t.nome} {t.rank && `(R.${t.rank})`}</option>
                     ))}
                   </select>
-                  <select className="input-field" value={attackStat} onChange={e => setAttackStat(e.target.value)} style={{ maxWidth:120 }}>
-                    {["FOR","AGI","RES","INT","PER","CAR"].map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
+                </details>
                 <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap" }}>
                   <button className="btn btn-danger btn-sm" disabled={!attackerId}
                     onClick={() => {
@@ -4614,14 +4721,6 @@ function BattlePage() {
                       setTargetId(null);
                     }}>
                     🎲 Tira Attacco
-                  </button>
-                  <button className="btn btn-outline btn-sm" disabled={!attackerId}
-                    onClick={() => {
-                      if (!attackerId) return;
-                      setAttackMode(true);
-                      setTargetId(null);
-                    }}>
-                    🎯 Modalità puntamento (clicca sulla mappa)
                   </button>
                   <button className="btn btn-primary btn-sm" disabled={!attackerId}
                     onClick={() => {
@@ -4636,18 +4735,15 @@ function BattlePage() {
                     }}>
                     ⚡ Usa Skill
                   </button>
+                  <button className="btn btn-outline btn-sm" disabled={!attackerId}
+                    onClick={() => {
+                      if (!attackerId) return;
+                      setAttackMode(true);
+                      setTargetId(null);
+                    }}>
+                    🎯 Punta sulla mappa
+                  </button>
                 </div>
-                {attackerId && (() => {
-                  const att = state.tokens.find(t => t.id === attackerId);
-                  if (!att) return null;
-                  const mod = modStat((att.stats||{})[attackStat]);
-                  const br = RANK_BDIF[att.rank] || 0;
-                  return (
-                    <div style={{ marginTop:"0.5rem", fontSize:"0.72rem", color:"var(--text-dim)", background:"var(--panel)", padding:"0.4rem 0.6rem", borderRadius:4 }}>
-                      <strong>{att.nome}</strong> · attacco: 1d20 {mod>=0?"+":""}{mod} ({attackStat}) {br>0?`+${br} Rank`:""} · danno: {att.dado_danno || "1d6"} {mod>=0?"+":""}{mod}
-                    </div>
-                  );
-                })()}
               </div>
             )}
 
