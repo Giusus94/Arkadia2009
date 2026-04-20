@@ -24,7 +24,7 @@ const CAT_IMAGES = {
   3: "/cat3.jpg",
   4: "/cat4.jpg",
   5: "/cat5.jpg",
-  6: "/cat6.png",
+  6: "/cat6.jpg",
 };
 
 // Fallback gradient per ogni categoria (usato finché l'immagine non è caricata)
