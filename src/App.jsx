@@ -1328,7 +1328,7 @@ function WikiPage() {
 // ═══════════════════════════════════════════════════════
 // GENERATORE PG
 // ═══════════════════════════════════════════════════════
-function GeneratorePage() {
+function GeneratorePage({ setPage }) {
   const [step,             setStep]             = useState(0);
   const [catRoll,          setCatRoll]          = useState(null);
   const [grpRoll,          setGrpRoll]          = useState(null);
@@ -1342,6 +1342,7 @@ function GeneratorePage() {
   const [pgName,           setPgName]           = useState("");
   const [pgBackground,     setPgBackground]     = useState("");
   const [generated,        setGenerated]        = useState(null);
+  const [savedSchedaId,    setSavedSchedaId]    = useState(null);
 
   function rollDice(_, setRoll, setRolling, setSettled) {
     setRolling(true); setSettled(false); setRoll(null);
@@ -1363,14 +1364,56 @@ function GeneratorePage() {
       vel:c.vel+(r.nome==="Nano del Sogno"?-1:0),
       scintille:3+(r.nome==="Umano"?1:0), pa:0, rank:"F",
     });
+
+    // ═══ SALVA AUTOMATICAMENTE NELLA SCHEDA GIOCABILE ═══
+    // Costruisce un oggetto compatibile con il formato della SchedaGiocabile
+    const schedaPG = {
+      id: Date.now(),
+      nome: pgName || "Senza Nome",
+      classeNome: c.nome,
+      razzaNome: r.nome,
+      frammentoNome: selectedFrammento.nome,
+      background: pgBackground || "",
+      pa: 0,
+      hp_curr: baseHP,
+      fl_curr: baseFL,
+      scintille: 3 + (r.nome === "Umano" ? 1 : 0),
+      scintille_max: 3 + (r.nome === "Umano" ? 1 : 0),
+      armatura: 0,
+      avatar: null,
+      token_color: "#8c6eff",
+      note: "",
+      skills: c.skills.map(sk => ({ nome: sk.nome, ps: 0, costo: sk.costo })),
+      condizioni: [],
+      log: [{
+        msg: `Scheda creata dal Generatore · ${c.nome} · ${r.nome} · ${selectedFrammento.nome}`,
+        type: "level",
+        time: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+      }],
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem("arcadia_schede_v1") || "[]");
+      existing.push(schedaPG);
+      localStorage.setItem("arcadia_schede_v1", JSON.stringify(existing));
+      localStorage.setItem("arcadia_schede_selected_v1", String(schedaPG.id));
+      setSavedSchedaId(schedaPG.id);
+    } catch (e) {
+      console.error("Errore salvataggio scheda:", e);
+    }
+
     setStep(4);
+  }
+
+  function goToScheda() {
+    if (setPage) setPage("scheda");
   }
 
   function restart() {
     setStep(0); setCatRoll(null); setGrpRoll(null);
     setRolling1(false); setRolling2(false); setSettled1(false); setSettled2(false);
     setSelectedClasse(null); setSelectedFrammento(null); setSelectedRazza(null);
-    setPgName(""); setPgBackground(""); setGenerated(null);
+    setPgName(""); setPgBackground(""); setGenerated(null); setSavedSchedaId(null);
   }
 
   const catClassi    = catRoll ? CLASSI.filter(c => c.cat===catRoll) : [];
@@ -1564,6 +1607,34 @@ function GeneratorePage() {
                 <button className="btn btn-outline" style={{ fontSize:"0.75rem" }} onClick={restart}>🎲 Nuovo PG</button>
               </div>
             </div>
+
+            {/* Banner: scheda salvata nella Scheda Giocabile */}
+            {savedSchedaId && (
+              <div style={{
+                margin:"1rem 2rem 0",
+                padding:"1rem 1.25rem",
+                background:"linear-gradient(135deg, rgba(77,255,168,0.1), rgba(140,110,255,0.08))",
+                border:"1px solid rgba(77,255,168,0.4)",
+                borderRadius:8,
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                gap:"1rem",
+                flexWrap:"wrap",
+              }}>
+                <div>
+                  <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--green)", fontSize:"0.88rem", marginBottom:"0.2rem" }}>
+                    ✓ Scheda salvata automaticamente
+                  </div>
+                  <div style={{ fontSize:"0.78rem", color:"var(--text-dim)" }}>
+                    Puoi ora combattere, salire di Rank, modificare HP/FL e stampare il PDF dalla Scheda Giocabile.
+                  </div>
+                </div>
+                <button className="btn btn-primary" style={{ fontSize:"0.8rem", whiteSpace:"nowrap" }} onClick={goToScheda}>
+                  📋 Apri nella Scheda →
+                </button>
+              </div>
+            )}
 
             <div style={{ padding:"2rem", display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:"1.5rem" }}>
               {/* Stats */}
@@ -3526,7 +3597,7 @@ export default function App() {
     home:      () => <HomePage setPage={setPage} />,
     wiki:      () => <WikiPage />,
     compendio: () => <CompendioPage />,
-    generator: () => <GeneratorePage />,
+    generator: () => <GeneratorePage setPage={setPage} />,
     scheda:    () => <SchedaGiocabile />,
     tracker:   () => <TrackerPage />,
   }[page] || (() => <HomePage setPage={setPage} />);
