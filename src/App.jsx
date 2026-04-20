@@ -3388,6 +3388,11 @@ function BattlePage() {
   const [dragOffset, setDragOffset] = useState({ x:0, y:0 });
   const [damageInput, setDamageInput] = useState(5);
   const [customToken, setCustomToken] = useState({ nome:"", hp:20, color:"#ff4d6d" });
+  // Sistema attacco: attackerId = chi attacca, attackStat = stat usata
+  const [attackerId, setAttackerId] = useState(null);
+  const [attackStat, setAttackStat] = useState("FOR");
+  const [attackMode, setAttackMode] = useState(false); // true = cliccando scegli target
+  const [pendingDodge, setPendingDodge] = useState(null); // { attId, defId, attTotal, damage, isCrit, pressione }
   const gridRef = useRef(null);
   const mapInputRef = useRef(null);
 
@@ -3421,9 +3426,21 @@ function BattlePage() {
   // Aggiungi token da scheda personaggio
   const addFromScheda = (scheda) => {
     const cls = CLASSI.find(c => c.nome === scheda.classeNome) || CLASSI[0];
+    const razza = RAZZE.find(r => r.nome === scheda.razzaNome) || RAZZE[0];
     const rank = getRankFromPA(scheda.pa || 0);
     const hp_max = Math.round(cls.hp * RANK_MHP[rank]);
     const fl_max = Math.round(cls.fl * RANK_MFL[rank]);
+    // Stat base classe + modificatori razziali
+    const stats = { FOR: cls.FOR, AGI: cls.AGI, RES: cls.RES, INT: cls.INT, PER: cls.PER, CAR: cls.CAR };
+    if (razza.nome === "Elfo del Sogno") { stats.AGI+=2; stats.PER+=2; stats.INT+=1; stats.RES-=2; }
+    else if (razza.nome === "Orc del Sogno") { stats.FOR+=3; stats.RES+=2; stats.INT-=2; }
+    else if (razza.nome === "Fantasma") { stats.INT+=2; stats.PER+=2; stats.CAR+=1; stats.FOR-=3; }
+    else if (razza.nome === "Nano del Sogno") { stats.RES+=2; stats.FOR+=2; stats.INT+=1; stats.AGI-=2; }
+    else if (razza.nome === "Bestian") { stats.AGI+=2; stats.PER+=1; stats.FOR+=1; }
+    else if (razza.nome === "Cyborg") { stats.FOR+=2; stats.RES+=2; stats.INT+=1; stats.AGI-=1; }
+    else if (razza.nome === "Sintetico") { stats.INT+=2; stats.RES+=2; stats.FOR+=1; }
+    else if (razza.nome === "Eco del Pandora") { stats.RES+=2; stats.FOR+=2; stats.INT+=1; stats.CAR-=2; }
+
     const newTok = {
       id: `pg-${scheda.id}-${Date.now()}`,
       source: "scheda",
@@ -3438,8 +3455,13 @@ function BattlePage() {
       fl_curr: scheda.fl_curr ?? fl_max,
       fl_max: fl_max,
       dif: cls.dif + RANK_BDIF[rank] + (scheda.armatura||0),
+      stats: stats,
+      dado_danno: cls.dado, // es "1d10" del Guerriero
       iniziativa: null,
       condizioni: [],
+      skills: cls.skills, // le skill della classe
+      reactionUsed: false, // reazione usata questo round
+      pressione: { targetId: null, gradino: 0 }, // accumulo pressione
       x: 2 + (state.tokens.filter(t => t.faction==="alleato").length % 4),
       y: 2,
       dead: false,
@@ -3463,8 +3485,12 @@ function BattlePage() {
       fl_curr: bestia.fl,
       fl_max: bestia.fl,
       dif: bestia.dif,
+      stats: bestia.stats || { FOR:10, AGI:10, RES:10, INT:10, PER:10, CAR:10 },
+      dado_danno: "1d8", // dado default per creature
       iniziativa: null,
       condizioni: [],
+      reactionUsed: false,
+      pressione: { targetId: null, gradino: 0 },
       x: 15 + (state.tokens.filter(t => t.faction==="nemico").length % 3),
       y: 7,
       dead: false,
@@ -3490,8 +3516,12 @@ function BattlePage() {
       fl_curr: npc.fl,
       fl_max: npc.fl,
       dif: npc.dif,
+      stats: npc.stats || { FOR:10, AGI:10, RES:10, INT:10, PER:10, CAR:10 },
+      dado_danno: "1d8",
       iniziativa: null,
       condizioni: [],
+      reactionUsed: false,
+      pressione: { targetId: null, gradino: 0 },
       x: 10,
       y: 7,
       dead: false,
@@ -3516,8 +3546,12 @@ function BattlePage() {
       hp_max: parseInt(customToken.hp)||20,
       fl_curr: 0, fl_max: 0,
       dif: 10,
+      stats: { FOR:10, AGI:10, RES:10, INT:10, PER:10, CAR:10 },
+      dado_danno: "1d6",
       iniziativa: null,
       condizioni: [],
+      reactionUsed: false,
+      pressione: { targetId: null, gradino: 0 },
       x: 10, y: 7, dead: false,
     };
     setState(s => ({ ...s, tokens: [...s.tokens, newTok] }));
@@ -3547,13 +3581,24 @@ function BattlePage() {
       const currentPos = aliveIndices.indexOf(s.turnIdx);
       let nextPos = currentPos + 1;
       let newRound = s.round;
+      let tokens = s.tokens;
       if (nextPos >= aliveIndices.length) {
         nextPos = 0;
         newRound = s.round + 1;
+        // Reset reazioni a nuovo round + scala durate condizioni
+        tokens = tokens.map(t => ({ ...t, reactionUsed: false }));
       }
       const newIdx = aliveIndices[nextPos];
-      return { ...s, turnIdx: newIdx, round: newRound };
+      return { ...s, tokens, turnIdx: newIdx, round: newRound };
     });
+    // Applica effetti condizioni all'inizio del prossimo turno
+    setTimeout(() => {
+      setState(s => {
+        const nextT = s.tokens[s.turnIdx];
+        if (nextT) applyTurnStartEffects(nextT.id);
+        return s;
+      });
+    }, 50);
   };
 
   const resetBattle = () => {
@@ -3611,6 +3656,270 @@ function BattlePage() {
     const newCond = cur.includes(cond) ? cur.filter(c => c !== cond) : [...cur, cond];
     updateToken(t.id, { condizioni: newCond });
     addLog(`${t.nome}: ${cur.includes(cond)?"rimossa":"applicata"} condizione ${cond}`, "skill");
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // SISTEMA DI ATTACCO — Regole core Chaos System v7 cap. 6.4
+  // ═══════════════════════════════════════════════════════
+  // Helper: modificatore caratteristica (v-10)/2 arrotondato per difetto
+  const modStat = (v) => Math.floor(((v ?? 10) - 10) / 2);
+  // Helper: bonus Rank
+  const bonusRank = (rank) => RANK_BDIF[rank] || 0;
+  // Helper: tira dado danno tipo "1d8+2" o "2d6"
+  const rollDado = (spec) => {
+    if (!spec) return 0;
+    const m = spec.match(/^(\d+)d(\d+)(?:\+(\d+))?$/i);
+    if (!m) return Math.floor(Math.random()*6)+1;
+    const n = parseInt(m[1]), faces = parseInt(m[2]), plus = parseInt(m[3]||0);
+    let total = plus;
+    for (let i = 0; i < n; i++) total += Math.floor(Math.random()*faces) + 1;
+    return total;
+  };
+  // Vantaggio/Svantaggio: tira 2d20 e mantiene max/min
+  const rollD20Adv = (adv) => {
+    const a = Math.floor(Math.random()*20)+1, b = Math.floor(Math.random()*20)+1;
+    if (adv === "vantaggio") return { value: Math.max(a,b), rolls:[a,b], adv:"vantaggio" };
+    if (adv === "svantaggio") return { value: Math.min(a,b), rolls:[a,b], adv:"svantaggio" };
+    return { value: a, rolls:[a], adv:null };
+  };
+  // Calcola Vantaggio/Svantaggio in base a condizioni
+  const getAdvantage = (attaccante, difensore) => {
+    const condAtt = attaccante.condizioni || [];
+    const condDef = difensore.condizioni || [];
+    let vantaggi = 0, svantaggi = 0;
+    // Svantaggi attaccante
+    if (condAtt.includes("Spaventato")) svantaggi++;
+    if (condAtt.includes("Avvelenato")) svantaggi++;  // gestito separatamente come -2
+    // Vantaggi vs bersaglio
+    if (condDef.includes("Paralizzato")) vantaggi++;
+    if (condDef.includes("Addormentato")) vantaggi++;
+    if (condDef.includes("Immobilizzato")) vantaggi++;
+    if (vantaggi > 0 && svantaggi > 0) return null; // annullamento
+    if (vantaggi > 0) return "vantaggio";
+    if (svantaggi > 0) return "svantaggio";
+    return null;
+  };
+  // Penalità da condizioni al tiro
+  const penalitaDaCondizioni = (t) => {
+    let pen = 0;
+    const cond = t.condizioni || [];
+    if (cond.includes("Avvelenato")) pen -= 2;
+    if (cond.includes("Esausto")) pen -= 2;
+    return pen;
+  };
+
+  // Esegui attacco: attaccante → difensore con stat scelta
+  const executeAttack = (attId, defId, stat, opts = {}) => {
+    setState(s => {
+      const att = s.tokens.find(t => t.id === attId);
+      const def = s.tokens.find(t => t.id === defId);
+      if (!att || !def) return s;
+      if (att.dead || def.dead) return s;
+
+      // Condizioni bloccanti per l'attaccante
+      const condAtt = att.condizioni || [];
+      if (condAtt.includes("Stordito") || condAtt.includes("Paralizzato") || condAtt.includes("Addormentato")) {
+        const newLog = { msg: `${att.nome} non può attaccare: ${condAtt.find(c => ["Stordito","Paralizzato","Addormentato"].includes(c))}`, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+        return { ...s, log: [newLog, ...(s.log||[]).slice(0,99)] };
+      }
+
+      // Determina vantaggio/svantaggio
+      const adv = getAdvantage(att, def);
+      // Tira 1d20
+      const roll = rollD20Adv(adv);
+      const mod = modStat((att.stats||{})[stat]);
+      const brAtt = bonusRank(att.rank);
+      const penAtt = penalitaDaCondizioni(att);
+      const attTotal = roll.value + mod + brAtt + penAtt;
+      const difesa = def.dif || 10;
+
+      // Critico / Fumble
+      const isCrit = roll.value === 20;
+      const isFumble = roll.value === 1;
+      const hit = !isFumble && (isCrit || attTotal >= difesa);
+
+      let logLines = [];
+      const advText = adv ? ` [${adv==="vantaggio"?"VAN":"SVA"} ${roll.rolls.join(",")}]` : "";
+      const modText = `${mod>=0?"+":""}${mod}`;
+      const brText = brAtt>0 ? `+${brAtt}` : "";
+      const penText = penAtt !== 0 ? `${penAtt}` : "";
+      logLines.push(`⚔️ ${att.nome} attacca ${def.nome} (${stat}): d20=${roll.value}${advText} ${modText}${brText}${penText} = ${attTotal} vs DIF ${difesa}`);
+
+      if (isFumble) {
+        logLines.push(`💀 FUMBLE (1 nat) — ${att.nome} manca e il GM introduce un Evento Avverso`);
+      } else if (!hit) {
+        // MISS: ma se manca di 1-3, Pressione non si azzera
+        const missBy = difesa - attTotal;
+        logLines.push(`✗ MISS — manca di ${missBy}${missBy<=3?" (Pressione conserva)":""}`);
+      } else {
+        // HIT: calcola danno e se il difensore può tentare Schivata Attiva,
+        // salva il risultato "pendente" e aspetta la decisione del difensore
+        let dmg = rollDado(att.dado_danno || "1d6") + mod;
+        if (isCrit) {
+          const crit2 = rollDado(att.dado_danno || "1d6") + mod;
+          dmg = dmg + crit2;
+        }
+
+        // Calcola pressione (non la applichiamo ancora se danno pendente)
+        let pressione = att.pressione || { targetId: null, gradino: 0 };
+        if (pressione.targetId === def.id) {
+          pressione = { ...pressione, gradino: Math.min(4, pressione.gradino + 1) };
+        } else {
+          pressione = { targetId: def.id, gradino: 1 };
+        }
+        if (pressione.gradino === 2) {
+          const extra = rollDado("1d4");
+          dmg += extra;
+        } else if (pressione.gradino === 3) {
+          const extra = rollDado("2d4");
+          dmg += extra;
+        } else if (pressione.gradino >= 4) {
+          dmg = dmg * 2;
+        }
+
+        logLines.push(`${isCrit?"💥 CRITICO (20 nat) x2":"✓ HIT"} — danno potenziale: ${dmg}`);
+        if (pressione.gradino > 1) {
+          logLines.push(`📈 Pressione Gradino ${pressione.gradino} ${["","","(Spinta +1d4)","(Rottura +2d4)","(Valanga x2)"][pressione.gradino]}`);
+        }
+
+        // Il difensore può tentare Schivata Attiva? Solo se vivo, ha FL≥1, non ha Rallentato
+        const condDef = def.condizioni || [];
+        const canDodge = !def.dead && (def.fl_curr||0) >= 1 && !condDef.includes("Rallentato") && !def.reactionUsed;
+
+        if (canDodge) {
+          // Metti in pausa: apri prompt di schivata
+          setTimeout(() => setPendingDodge({
+            attId, defId, attTotal, damage: dmg, isCrit, pressione,
+            logLinesPending: logLines,
+          }), 0);
+          // Aggiorna log e aggiorna pressione attaccante, ma NON applichiamo ancora danno
+          const logEntries = logLines.concat([`⏸️ ${def.nome} può tentare Schivata Attiva (1 FL)`]).map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+          return { ...s, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
+        }
+
+        // Applica danno normalmente
+        const newHp = Math.max(0, def.hp_curr - dmg);
+        const dead = newHp === 0;
+        logLines.push(`💔 ${def.nome}: ${def.hp_curr} → ${newHp} HP${dead?" · K.O.!":""}`);
+
+        const newTokens = s.tokens.map(t => {
+          if (t.id === def.id) return { ...t, hp_curr: newHp, dead };
+          if (t.id === att.id) return { ...t, pressione };
+          return t;
+        });
+        const logEntries = logLines.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+        // Sync scheda
+        if (def.source === "scheda" && def.schedaId) {
+          try {
+            const raw = localStorage.getItem("arcadia_schede_v1");
+            const schede = raw ? JSON.parse(raw) : [];
+            const idx = schede.findIndex(sc => String(sc.id) === String(def.schedaId));
+            if (idx >= 0) { schede[idx].hp_curr = newHp; localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede)); }
+          } catch {}
+        }
+        return { ...s, tokens: newTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
+      }
+
+      // MISS path: aggiorna pressione (mancato di 1-3 la mantiene)
+      const missBy = difesa - attTotal;
+      let pressione = att.pressione || { targetId: null, gradino: 0 };
+      if (!isFumble && missBy > 0 && missBy <= 3 && pressione.targetId === def.id) {
+        // Conserva
+      } else {
+        pressione = { targetId: null, gradino: 0 };
+      }
+      const newTokens = s.tokens.map(t => t.id === att.id ? { ...t, pressione } : t);
+      const logEntries = logLines.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+      return { ...s, tokens: newTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
+    });
+    setAttackMode(false);
+  };
+
+  // ═══ SCHIVATA ATTIVA (Reazione universale, cap. 6.7) ═══
+  // Il difensore spende 1 FL e tira AGI DC = risultato attaccante
+  // Successo → schiva (0 danni). Fallimento → subisce danno pieno.
+  const resolveDodge = (tryDodge) => {
+    if (!pendingDodge) return;
+    const { attId, defId, attTotal, damage, pressione, isCrit } = pendingDodge;
+    setState(s => {
+      const att = s.tokens.find(t => t.id === attId);
+      const def = s.tokens.find(t => t.id === defId);
+      if (!att || !def) return s;
+
+      let logLines = [];
+      let finalDamage = damage;
+      let dodgeSuccess = false;
+      let flCost = 0;
+
+      if (tryDodge) {
+        flCost = 1;
+        const roll = Math.floor(Math.random()*20) + 1;
+        const modAgi = modStat((def.stats||{}).AGI);
+        const brDef = bonusRank(def.rank);
+        const penDef = penalitaDaCondizioni(def);
+        const dodgeTotal = roll + modAgi + brDef + penDef;
+        const dc = attTotal;
+        dodgeSuccess = roll !== 1 && (roll === 20 || dodgeTotal >= dc);
+        const modText = `${modAgi>=0?"+":""}${modAgi}`;
+        const brText = brDef>0 ? `+${brDef}` : "";
+        logLines.push(`🛡️ ${def.nome} tenta Schivata (−1 FL): d20=${roll} ${modText}${brText} = ${dodgeTotal} vs DC ${dc}`);
+        if (dodgeSuccess) {
+          logLines.push(`✓ SCHIVATO — 0 danni`);
+          finalDamage = 0;
+        } else {
+          logLines.push(`✗ Schivata fallita`);
+        }
+      }
+
+      // Applica danno (0 se schivata riuscita)
+      const newHp = Math.max(0, def.hp_curr - finalDamage);
+      const newFl = Math.max(0, def.fl_curr - flCost);
+      const dead = newHp === 0;
+      if (finalDamage > 0) {
+        logLines.push(`💔 ${def.nome}: ${def.hp_curr} → ${newHp} HP${dead?" · K.O.!":""}`);
+      }
+
+      const newTokens = s.tokens.map(t => {
+        if (t.id === def.id) return { ...t, hp_curr: newHp, fl_curr: newFl, dead, reactionUsed: tryDodge ? true : t.reactionUsed };
+        if (t.id === att.id) return { ...t, pressione };
+        return t;
+      });
+      const logEntries = logLines.map(msg => ({ msg, type: dodgeSuccess?"skill":"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+
+      // Sync scheda
+      if (def.source === "scheda" && def.schedaId) {
+        try {
+          const raw = localStorage.getItem("arcadia_schede_v1");
+          const schede = raw ? JSON.parse(raw) : [];
+          const idx = schede.findIndex(sc => String(sc.id) === String(def.schedaId));
+          if (idx >= 0) { schede[idx].hp_curr = newHp; schede[idx].fl_curr = newFl; localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede)); }
+        } catch {}
+      }
+      return { ...s, tokens: newTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
+    });
+    setPendingDodge(null);
+  };
+
+  // Applica effetti a inizio turno del token corrente (danni da condizioni)
+  const applyTurnStartEffects = (tokenId) => {
+    setState(s => {
+      const t = s.tokens.find(x => x.id === tokenId);
+      if (!t || t.dead) return s;
+      const cond = t.condizioni || [];
+      let hpChange = 0;
+      let logs = [];
+      if (cond.includes("Bruciante")) {
+        const d = rollDado("1d4");
+        hpChange -= d;
+        logs.push(`🔥 ${t.nome} Bruciante: -${d} HP`);
+      }
+      if (hpChange === 0) return s;
+      const newHp = Math.max(0, t.hp_curr + hpChange);
+      const dead = newHp === 0;
+      const newTokens = s.tokens.map(x => x.id === tokenId ? { ...x, hp_curr: newHp, dead } : x);
+      const newLog = logs.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+      return { ...s, tokens: newTokens, log: [...newLog.reverse(), ...(s.log||[]).slice(0, 99)] };
+    });
   };
 
   // Drag & drop token sulla griglia
@@ -3675,6 +3984,27 @@ function BattlePage() {
         <button className="btn btn-danger btn-sm" onClick={resetBattle}>🗑️ Reset</button>
       </div>
 
+      {/* Banner modalità attacco */}
+      {attackMode && attackerId && (() => {
+        const att = state.tokens.find(t => t.id === attackerId);
+        return (
+          <div style={{
+            padding:"0.75rem 1rem", marginBottom:"1rem",
+            background:"linear-gradient(135deg, rgba(255,77,109,0.15), rgba(140,110,255,0.08))",
+            border:"1px solid var(--red)", borderRadius:6,
+            display:"flex", justifyContent:"space-between", alignItems:"center", gap:"1rem", flexWrap:"wrap",
+          }}>
+            <div>
+              <strong style={{ color:"var(--red)" }}>⚔️ Modalità attacco attiva</strong>
+              <div style={{ fontSize:"0.8rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+                {att?.nome} · stat {attackStat} ({modStat((att?.stats||{})[attackStat])>=0?"+":""}{modStat((att?.stats||{})[attackStat])}) · Clicca sul bersaglio sulla mappa
+              </div>
+            </div>
+            <button className="btn btn-outline btn-sm" onClick={() => { setAttackMode(false); setAttackerId(null); }}>✕ Annulla</button>
+          </div>
+        );
+      })()}
+
       <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:"1rem", alignItems:"start" }}>
         {/* MAPPA */}
         <div style={{
@@ -3722,7 +4052,14 @@ function BattlePage() {
               return (
                 <div key={t.id}
                   onMouseDown={e => onTokenMouseDown(e, t)}
-                  onClick={e => { e.stopPropagation(); setTargetId(t.id); }}
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (attackMode && attackerId && attackerId !== t.id) {
+                      executeAttack(attackerId, t.id, attackStat);
+                    } else {
+                      setTargetId(t.id);
+                    }
+                  }}
                   style={{
                     position:"absolute",
                     left: t.x * CELL_SIZE,
@@ -3897,11 +4234,72 @@ function BattlePage() {
                 </>
               )}
               {target.dif && <div style={{ marginTop:"0.5rem", fontSize:"0.78rem", color:"var(--purple)" }}>DIF: <strong>{target.dif}</strong></div>}
+              {target.stats && (
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:"0.2rem", marginTop:"0.5rem" }}>
+                  {Object.entries(target.stats).map(([k,v]) => (
+                    <div key={k} style={{ textAlign:"center", padding:"0.2rem", background:"var(--panel)", borderRadius:3 }}>
+                      <div style={{ fontSize:"0.58rem", color:"var(--text-dim)" }}>{k}</div>
+                      <div style={{ fontSize:"0.78rem", fontWeight:700, color:"var(--text-bright)" }}>{v}</div>
+                      <div style={{ fontSize:"0.6rem", color:"var(--purple-bright)" }}>{modStat(v)>=0?"+":""}{modStat(v)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Azioni danno/cura */}
+            {/* ⚔️ TIRO D'ATTACCO — regole manuale v7 */}
+            {target.stats && !target.dead && (
+              <div style={{ marginBottom:"1rem", padding:"0.75rem", background:"rgba(255,77,109,0.06)", borderRadius:6, border:"1px solid rgba(255,77,109,0.3)" }}>
+                <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem", color:"var(--red)" }}>⚔️ Attacco dal manuale</div>
+                <p style={{ fontSize:"0.72rem", color:"var(--text-dim)", marginBottom:"0.5rem" }}>
+                  Seleziona chi attacca e con quale caratteristica — tiro 1d20 + mod + bonus Rank vs DIF {target.dif}
+                </p>
+                <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.5rem", flexWrap:"wrap" }}>
+                  <select className="input-field" value={attackerId || ""} onChange={e => setAttackerId(e.target.value || null)} style={{ flex:1, minWidth:150 }}>
+                    <option value="">Scegli attaccante...</option>
+                    {state.tokens.filter(t => t.id !== target.id && !t.dead).map(t => (
+                      <option key={t.id} value={t.id}>{t.nome} {t.rank && `(R.${t.rank})`}</option>
+                    ))}
+                  </select>
+                  <select className="input-field" value={attackStat} onChange={e => setAttackStat(e.target.value)} style={{ maxWidth:120 }}>
+                    {["FOR","AGI","RES","INT","PER","CAR"].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap" }}>
+                  <button className="btn btn-danger btn-sm" disabled={!attackerId}
+                    onClick={() => {
+                      if (!attackerId) return;
+                      executeAttack(attackerId, target.id, attackStat);
+                      setTargetId(null);
+                    }}>
+                    🎲 Tira Attacco
+                  </button>
+                  <button className="btn btn-outline btn-sm" disabled={!attackerId}
+                    onClick={() => {
+                      if (!attackerId) return;
+                      setAttackMode(true);
+                      setTargetId(null);
+                    }}>
+                    🎯 Modalità puntamento (clicca sulla mappa)
+                  </button>
+                </div>
+                {attackerId && (() => {
+                  const att = state.tokens.find(t => t.id === attackerId);
+                  if (!att) return null;
+                  const mod = modStat((att.stats||{})[attackStat]);
+                  const br = RANK_BDIF[att.rank] || 0;
+                  return (
+                    <div style={{ marginTop:"0.5rem", fontSize:"0.72rem", color:"var(--text-dim)", background:"var(--panel)", padding:"0.4rem 0.6rem", borderRadius:4 }}>
+                      <strong>{att.nome}</strong> · attacco: 1d20 {mod>=0?"+":""}{mod} ({attackStat}) {br>0?`+${br} Rank`:""} · danno: {att.dado_danno || "1d6"} {mod>=0?"+":""}{mod}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Azioni danno/cura manuali (override/GM) */}
             <div style={{ marginBottom:"1rem", padding:"0.75rem", background:"var(--panel2)", borderRadius:6, border:"1px solid var(--border)" }}>
-              <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Azione</div>
+              <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Applica manualmente (GM)</div>
               <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", marginBottom:"0.5rem", flexWrap:"wrap" }}>
                 <input className="input-field" type="number" value={damageInput}
                   onChange={e => setDamageInput(parseInt(e.target.value)||0)}
@@ -3972,6 +4370,53 @@ function BattlePage() {
           </div>
         </div>
       )}
+
+      {/* MODAL SCHIVATA ATTIVA */}
+      {pendingDodge && (() => {
+        const att = state.tokens.find(t => t.id === pendingDodge.attId);
+        const def = state.tokens.find(t => t.id === pendingDodge.defId);
+        if (!att || !def) { setPendingDodge(null); return null; }
+        const canAfford = (def.fl_curr || 0) >= 1;
+        return (
+          <div style={{
+            position:"fixed", inset:0, background:"rgba(3,1,8,0.85)", zIndex:200,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+            backdropFilter:"blur(6px)",
+          }}>
+            <div className="card" style={{ padding:"1.5rem", maxWidth:460, width:"100%", borderTop:"3px solid var(--flux)" }}>
+              <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.3rem", fontWeight:700, color:"var(--flux)", marginBottom:"0.5rem" }}>
+                🛡️ Schivata Attiva?
+              </div>
+              <p style={{ fontSize:"0.88rem", color:"var(--text)", lineHeight:1.6, marginBottom:"1rem" }}>
+                <strong>{att.nome}</strong> ha colpito <strong>{def.nome}</strong> con un tiro <strong style={{ color:"var(--red)" }}>{pendingDodge.attTotal}</strong>
+                {pendingDodge.isCrit && <span style={{ color:"var(--gold)" }}> (CRITICO)</span>}.
+                Danno potenziale: <strong style={{ color:"var(--red)" }}>{pendingDodge.damage}</strong>.
+              </p>
+              <div style={{ padding:"0.75rem", background:"var(--panel2)", border:"1px solid var(--border)", borderRadius:6, marginBottom:"1rem", fontSize:"0.82rem" }}>
+                <div style={{ color:"var(--text-dim)", marginBottom:"0.4rem" }}>
+                  <strong style={{ color:"var(--flux)" }}>{def.nome}</strong> può spendere <strong>1 Flusso</strong> (ha {def.fl_curr}) per tentare una Schivata Attiva:
+                </div>
+                <div style={{ color:"var(--text)" }}>
+                  Tira <strong>d20 + AGI ({modStat((def.stats||{}).AGI)>=0?"+":""}{modStat((def.stats||{}).AGI)})</strong> {bonusRank(def.rank)>0 && `+ ${bonusRank(def.rank)} Rank`} vs DC {pendingDodge.attTotal}
+                </div>
+                <div style={{ fontSize:"0.75rem", color:"var(--text-dim)", marginTop:"0.3rem", fontStyle:"italic" }}>
+                  Successo → 0 danni. Fallimento → danno pieno. Consuma la Reazione di questo round.
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:"0.5rem", justifyContent:"flex-end", flexWrap:"wrap" }}>
+                <button className="btn btn-danger btn-sm" onClick={() => resolveDodge(false)}>
+                  💔 Subisci ({pendingDodge.damage} danni)
+                </button>
+                <button className="btn btn-gold btn-sm" onClick={() => resolveDodge(true)} disabled={!canAfford || def.reactionUsed}>
+                  🛡️ Schiva (−1 FL)
+                </button>
+              </div>
+              {!canAfford && <div style={{ color:"var(--red)", fontSize:"0.72rem", marginTop:"0.5rem", textAlign:"right" }}>Flusso insufficiente</div>}
+              {def.reactionUsed && <div style={{ color:"var(--red)", fontSize:"0.72rem", marginTop:"0.5rem", textAlign:"right" }}>Reazione già usata questo round</div>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* PANNELLO AGGIUNGI TOKEN */}
       {showAddPanel && (
