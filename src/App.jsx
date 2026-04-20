@@ -611,6 +611,35 @@ const GlobalStyles = () => (
     }
     .input-field:focus { border-color: var(--purple); background: rgba(140,110,255,0.1); }
 
+    /* ── Select dropdown: force dark theme nel dropdown nativo del browser ── */
+    select.input-field {
+      background-color: #14112a;
+      color: var(--text-bright);
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%238c6eff' d='M6 9L1 4h10z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 0.6rem center;
+      padding-right: 2rem;
+      cursor: pointer;
+    }
+    select.input-field option {
+      background-color: #14112a;
+      color: #e8e2d5;
+      padding: 0.5rem;
+    }
+    select.input-field option:hover,
+    select.input-field option:checked {
+      background-color: #8c6eff;
+      color: white;
+    }
+    /* Input type="color" più leggibile */
+    input[type="color"].input-field {
+      padding: 0.2rem;
+      cursor: pointer;
+    }
+
     /* ── Progress bar ── */
     .progress-bar { height: 6px; background: rgba(140,110,255,0.1); border-radius: 3px; overflow: hidden; }
     .progress-fill {
@@ -1376,6 +1405,7 @@ function GeneratorePage({ setPage }) {
       classeNome: c.nome,
       razzaNome: r.nome,
       frammentoNome: selectedFrammento.nome,
+      locked: true, // creata dal Generatore — classe/razza/frammento non modificabili
       background: pgBackground || "",
       pa: 0,
       hp_curr: baseHP,
@@ -2222,11 +2252,26 @@ function SchedaGiocabile() {
           </div>
 
           <div className="card" style={{ padding:"1.5rem", marginBottom:"1rem" }}>
-            <div className="section-title" style={{ marginBottom:"1rem" }}>Identità</div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem", flexWrap:"wrap", gap:"0.5rem" }}>
+              <div className="section-title">Identità</div>
+              {char.locked && (
+                <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                  <span style={{ fontSize:"0.72rem", color:"var(--gold)", background:"rgba(201,169,110,0.12)", padding:"0.25rem 0.6rem", borderRadius:4, border:"1px solid rgba(201,169,110,0.3)" }}>
+                    🔒 Generato dal Creatore di PG
+                  </span>
+                  <button className="btn btn-outline btn-xs" onClick={() => {
+                    if (confirm("Sbloccare l'identità? Potrai cambiare classe, razza e frammento, ma perderai la coerenza con la generazione originale.")) {
+                      updateChar({ locked: false });
+                    }
+                  }}>Sblocca</button>
+                </div>
+              )}
+            </div>
             <div className="grid-2">
               <div>
                 <label style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", display:"block", marginBottom:"0.3rem" }}>Classe</label>
-                <select className="input-field" value={char.classeNome}
+                <select className="input-field" value={char.classeNome} disabled={char.locked}
+                  style={char.locked ? { opacity:0.7, cursor:"not-allowed" } : {}}
                   onChange={e => {
                     const newCls = CLASSI.find(c => c.nome === e.target.value);
                     if (!newCls) return;
@@ -2240,13 +2285,17 @@ function SchedaGiocabile() {
               </div>
               <div>
                 <label style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", display:"block", marginBottom:"0.3rem" }}>Razza</label>
-                <select className="input-field" value={char.razzaNome} onChange={e => updateChar({ razzaNome: e.target.value })}>
+                <select className="input-field" value={char.razzaNome} disabled={char.locked}
+                  style={char.locked ? { opacity:0.7, cursor:"not-allowed" } : {}}
+                  onChange={e => updateChar({ razzaNome: e.target.value })}>
                   {RAZZE.map(r => <option key={r.nome} value={r.nome}>{r.nome}</option>)}
                 </select>
               </div>
               <div>
                 <label style={{ fontSize:"0.7rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", display:"block", marginBottom:"0.3rem" }}>Frammento</label>
-                <select className="input-field" value={char.frammentoNome} onChange={e => updateChar({ frammentoNome: e.target.value })}>
+                <select className="input-field" value={char.frammentoNome} disabled={char.locked}
+                  style={char.locked ? { opacity:0.7, cursor:"not-allowed" } : {}}
+                  onChange={e => updateChar({ frammentoNome: e.target.value })}>
                   {FRAMMENTI.map(f => <option key={f.nome} value={f.nome}>{f.nome}</option>)}
                 </select>
               </div>
@@ -3315,6 +3364,758 @@ function ArmaDetailBody({ item, onClose }) {
 }
 
 // ═══════════════════════════════════════════════════════
+// BATTAGLIA — Mappa tattica con token e targeting
+// ═══════════════════════════════════════════════════════
+const CELL_SIZE = 48; // px per cella della griglia
+const GRID_W = 20;    // larghezza in celle
+const GRID_H = 15;    // altezza in celle
+
+const CONDIZIONI_BATTLE = ["Spaventato","Stordito","Silenziato","Sanguinante","Rallentato","Addormentato","Confuso","Corrotto","Esausto"];
+
+function BattlePage() {
+  // Stato battaglia (persistente)
+  const [state, setState] = useState(() => {
+    try {
+      const s = localStorage.getItem("arcadia_battle_v1");
+      return s ? JSON.parse(s) : { tokens: [], round: 1, turnIdx: 0, mapBg: null, log: [] };
+    } catch { return { tokens: [], round: 1, turnIdx: 0, mapBg: null, log: [] }; }
+  });
+
+  const [targetId, setTargetId] = useState(null);  // token cliccato (per menu azioni)
+  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [addTab, setAddTab] = useState("schede"); // schede | bestiario | npc | custom
+  const [dragId, setDragId] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x:0, y:0 });
+  const [damageInput, setDamageInput] = useState(5);
+  const [customToken, setCustomToken] = useState({ nome:"", hp:20, color:"#ff4d6d" });
+  const gridRef = useRef(null);
+  const mapInputRef = useRef(null);
+
+  // Persistenza
+  useEffect(() => {
+    try { localStorage.setItem("arcadia_battle_v1", JSON.stringify(state)); } catch {}
+  }, [state]);
+
+  const update = (patch) => setState(s => ({ ...s, ...patch }));
+  const updateToken = (id, patch) => setState(s => ({
+    ...s,
+    tokens: s.tokens.map(t => t.id === id ? { ...t, ...patch } : t),
+  }));
+  const removeToken = (id) => setState(s => ({
+    ...s,
+    tokens: s.tokens.filter(t => t.id !== id),
+  }));
+  const addLog = (msg, type="info") => {
+    const entry = { msg, type, time: new Date().toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" }) };
+    setState(s => ({ ...s, log: [entry, ...(s.log||[]).slice(0,99)] }));
+  };
+
+  // Carica schede esistenti da localStorage (per aggiungerle come token)
+  const schedeDisponibili = useMemo(() => {
+    try {
+      const s = localStorage.getItem("arcadia_schede_v1");
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  }, [showAddPanel]); // ricarica quando si apre il pannello
+
+  // Aggiungi token da scheda personaggio
+  const addFromScheda = (scheda) => {
+    const cls = CLASSI.find(c => c.nome === scheda.classeNome) || CLASSI[0];
+    const rank = getRankFromPA(scheda.pa || 0);
+    const hp_max = Math.round(cls.hp * RANK_MHP[rank]);
+    const fl_max = Math.round(cls.fl * RANK_MFL[rank]);
+    const newTok = {
+      id: `pg-${scheda.id}-${Date.now()}`,
+      source: "scheda",
+      schedaId: scheda.id,
+      nome: scheda.nome,
+      faction: "alleato",
+      color: scheda.token_color || "#4dffa8",
+      avatar: scheda.avatar,
+      rank: rank,
+      hp_curr: scheda.hp_curr ?? hp_max,
+      hp_max: hp_max,
+      fl_curr: scheda.fl_curr ?? fl_max,
+      fl_max: fl_max,
+      dif: cls.dif + RANK_BDIF[rank] + (scheda.armatura||0),
+      iniziativa: null,
+      condizioni: [],
+      x: 2 + (state.tokens.filter(t => t.faction==="alleato").length % 4),
+      y: 2,
+      dead: false,
+    };
+    setState(s => ({ ...s, tokens: [...s.tokens, newTok] }));
+    addLog(`${scheda.nome} entra in battaglia`, "spawn");
+    setShowAddPanel(false);
+  };
+
+  // Aggiungi token da creatura del Bestiario
+  const addFromBestia = (bestia) => {
+    const newTok = {
+      id: `bst-${bestia.nome.replace(/\s+/g,'')}-${Date.now()}`,
+      source: "bestiario",
+      nome: bestia.nome,
+      faction: "nemico",
+      color: "#ff4d6d",
+      rank: bestia.rank,
+      hp_curr: bestia.hp,
+      hp_max: bestia.hp,
+      fl_curr: bestia.fl,
+      fl_max: bestia.fl,
+      dif: bestia.dif,
+      iniziativa: null,
+      condizioni: [],
+      x: 15 + (state.tokens.filter(t => t.faction==="nemico").length % 3),
+      y: 7,
+      dead: false,
+      tipo: bestia.tipo,
+      skills: bestia.skills,
+    };
+    setState(s => ({ ...s, tokens: [...s.tokens, newTok] }));
+    addLog(`${bestia.nome} appare sul campo`, "spawn");
+    setShowAddPanel(false);
+  };
+
+  // Aggiungi NPC dal Compendio
+  const addFromNpc = (npc) => {
+    const newTok = {
+      id: `npc-${npc.nome.replace(/\s+/g,'')}-${Date.now()}`,
+      source: "npc",
+      nome: npc.nome,
+      faction: "neutrale",
+      color: FAZIONI_COLOR[npc.fazione] || "#c9a96e",
+      rank: npc.rank,
+      hp_curr: npc.hp,
+      hp_max: npc.hp,
+      fl_curr: npc.fl,
+      fl_max: npc.fl,
+      dif: npc.dif,
+      iniziativa: null,
+      condizioni: [],
+      x: 10,
+      y: 7,
+      dead: false,
+      fazione: npc.fazione,
+      skills: npc.skills,
+    };
+    setState(s => ({ ...s, tokens: [...s.tokens, newTok] }));
+    addLog(`${npc.nome} entra in scena`, "spawn");
+    setShowAddPanel(false);
+  };
+
+  // Aggiungi custom
+  const addCustom = () => {
+    if (!customToken.nome.trim()) return;
+    const newTok = {
+      id: `cust-${Date.now()}`,
+      source: "custom",
+      nome: customToken.nome.trim(),
+      faction: "nemico",
+      color: customToken.color,
+      hp_curr: parseInt(customToken.hp)||20,
+      hp_max: parseInt(customToken.hp)||20,
+      fl_curr: 0, fl_max: 0,
+      dif: 10,
+      iniziativa: null,
+      condizioni: [],
+      x: 10, y: 7, dead: false,
+    };
+    setState(s => ({ ...s, tokens: [...s.tokens, newTok] }));
+    addLog(`${newTok.nome} entra in battaglia`, "spawn");
+    setCustomToken({ nome:"", hp:20, color:"#ff4d6d" });
+    setShowAddPanel(false);
+  };
+
+  // Tira iniziativa per tutti i token
+  const rollIniziativa = () => {
+    setState(s => {
+      const tokens = s.tokens.map(t => ({
+        ...t,
+        iniziativa: Math.floor(Math.random()*20) + 1 + (t.iniziativaBonus||0),
+      }));
+      tokens.sort((a,b) => (b.iniziativa||0) - (a.iniziativa||0));
+      return { ...s, tokens, turnIdx: 0, round: 1 };
+    });
+    addLog("Tiro iniziativa per tutti", "info");
+  };
+
+  const nextTurn = () => {
+    setState(s => {
+      if (!s.tokens.length) return s;
+      const aliveIndices = s.tokens.map((t,i) => t.dead ? null : i).filter(i => i !== null);
+      if (!aliveIndices.length) return s;
+      const currentPos = aliveIndices.indexOf(s.turnIdx);
+      let nextPos = currentPos + 1;
+      let newRound = s.round;
+      if (nextPos >= aliveIndices.length) {
+        nextPos = 0;
+        newRound = s.round + 1;
+      }
+      const newIdx = aliveIndices[nextPos];
+      return { ...s, turnIdx: newIdx, round: newRound };
+    });
+  };
+
+  const resetBattle = () => {
+    if (!confirm("Resettare completamente la battaglia? Tutti i token saranno rimossi.")) return;
+    setState({ tokens: [], round: 1, turnIdx: 0, mapBg: state.mapBg, log: [] });
+  };
+
+  // Applica danno/cura al target
+  const applyToTarget = (action, value) => {
+    const t = state.tokens.find(x => x.id === targetId);
+    if (!t) return;
+    if (action === "danno") {
+      const newHp = Math.max(0, t.hp_curr - Math.abs(value));
+      const dead = newHp === 0;
+      updateToken(t.id, { hp_curr: newHp, dead });
+      addLog(`${t.nome} subisce ${Math.abs(value)} danni → ${newHp}/${t.hp_max}${dead?" · K.O.!":""}`, "danno");
+      if (dead && targetId) setTargetId(null);
+    } else if (action === "cura") {
+      const newHp = Math.min(t.hp_max, t.hp_curr + Math.abs(value));
+      updateToken(t.id, { hp_curr: newHp, dead: newHp === 0 });
+      addLog(`${t.nome} recupera ${Math.abs(value)} HP → ${newHp}/${t.hp_max}`, "cura");
+    } else if (action === "fl-cost") {
+      const newFl = Math.max(0, t.fl_curr - Math.abs(value));
+      updateToken(t.id, { fl_curr: newFl });
+      addLog(`${t.nome} spende ${Math.abs(value)} FL`, "skill");
+    } else if (action === "revive") {
+      updateToken(t.id, { hp_curr: 1, dead: false });
+      addLog(`${t.nome} torna in piedi (1 HP)`, "cura");
+    }
+
+    // Se il token è una scheda → sincronizza con localStorage arcadia_schede_v1
+    if (t.source === "scheda" && t.schedaId) {
+      try {
+        const raw = localStorage.getItem("arcadia_schede_v1");
+        const schede = raw ? JSON.parse(raw) : [];
+        const idx = schede.findIndex(s => String(s.id) === String(t.schedaId));
+        if (idx >= 0) {
+          const updatedT = { ...t,
+            hp_curr: action==="danno" ? Math.max(0, t.hp_curr - Math.abs(value)) :
+                     action==="cura" ? Math.min(t.hp_max, t.hp_curr + Math.abs(value)) :
+                     action==="revive" ? 1 : t.hp_curr,
+            fl_curr: action==="fl-cost" ? Math.max(0, t.fl_curr - Math.abs(value)) : t.fl_curr,
+          };
+          schede[idx] = { ...schede[idx], hp_curr: updatedT.hp_curr, fl_curr: updatedT.fl_curr };
+          localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede));
+        }
+      } catch (e) { console.error("sync scheda err:", e); }
+    }
+  };
+
+  const toggleCondition = (cond) => {
+    const t = state.tokens.find(x => x.id === targetId);
+    if (!t) return;
+    const cur = t.condizioni || [];
+    const newCond = cur.includes(cond) ? cur.filter(c => c !== cond) : [...cur, cond];
+    updateToken(t.id, { condizioni: newCond });
+    addLog(`${t.nome}: ${cur.includes(cond)?"rimossa":"applicata"} condizione ${cond}`, "skill");
+  };
+
+  // Drag & drop token sulla griglia
+  const onTokenMouseDown = (e, t) => {
+    if (e.button !== 0) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    setDragId(t.id);
+    setDragOffset({
+      x: e.clientX - rect.left - t.x*CELL_SIZE,
+      y: e.clientY - rect.top - t.y*CELL_SIZE,
+    });
+    e.preventDefault();
+  };
+
+  const onGridMouseMove = (e) => {
+    if (!dragId || !gridRef.current) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    const nx = Math.max(0, Math.min(GRID_W - 1, Math.round((e.clientX - rect.left - dragOffset.x)/CELL_SIZE)));
+    const ny = Math.max(0, Math.min(GRID_H - 1, Math.round((e.clientY - rect.top - dragOffset.y)/CELL_SIZE)));
+    updateToken(dragId, { x: nx, y: ny });
+  };
+
+  const onGridMouseUp = () => {
+    if (dragId) setDragId(null);
+  };
+
+  // Upload mappa
+  const uploadMap = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => update({ mapBg: ev.target.result });
+    r.readAsDataURL(f);
+    e.target.value = "";
+  };
+
+  const target = targetId ? state.tokens.find(t => t.id === targetId) : null;
+  const currentToken = state.tokens[state.turnIdx];
+  const iniziativaOrdered = [...state.tokens].sort((a,b) => (b.iniziativa||0) - (a.iniziativa||0));
+
+  return (
+    <div className="anim-fade-in" onMouseUp={onGridMouseUp}>
+      <div style={{ marginBottom:"1.5rem" }}>
+        <div className="section-title">Campo di Battaglia</div>
+        <div className="page-title">Mappa Tattica</div>
+        <p className="page-subtitle">Trascina i token, targetta per applicare danni/cure/condizioni. HP/FL sincronizzati con le schede.</p>
+      </div>
+
+      {/* Controlli in alto */}
+      <div style={{ display:"flex", gap:"0.5rem", marginBottom:"1rem", flexWrap:"wrap", alignItems:"center" }}>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowAddPanel(true)}>+ Aggiungi Token</button>
+        <button className="btn btn-gold btn-sm" onClick={rollIniziativa} disabled={!state.tokens.length}>🎲 Tira Iniziativa</button>
+        <button className="btn btn-outline btn-sm" onClick={nextTurn} disabled={!state.tokens.length}>Prossimo Turno →</button>
+        <label className="btn btn-outline btn-sm" style={{ cursor:"pointer" }}>
+          🗺️ Carica Mappa
+          <input ref={mapInputRef} type="file" accept="image/*" onChange={uploadMap} style={{ display:"none" }} />
+        </label>
+        {state.mapBg && <button className="btn btn-outline btn-sm" onClick={() => update({ mapBg: null })}>✕ Rimuovi Mappa</button>}
+        <span style={{ flex:1 }} />
+        <span style={{ fontSize:"0.8rem", color:"var(--text-dim)" }}>Round <strong style={{ color:"var(--gold)" }}>{state.round}</strong></span>
+        {currentToken && <span style={{ fontSize:"0.8rem", color:"var(--purple-bright)" }}>Turno di <strong>{currentToken.nome}</strong></span>}
+        <button className="btn btn-danger btn-sm" onClick={resetBattle}>🗑️ Reset</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:"1rem", alignItems:"start" }}>
+        {/* MAPPA */}
+        <div style={{
+          position:"relative",
+          width: GRID_W * CELL_SIZE,
+          height: GRID_H * CELL_SIZE,
+          maxWidth:"100%",
+          border:"2px solid var(--border-strong)",
+          borderRadius:8,
+          overflow:"auto",
+          background:"var(--panel2)",
+        }}>
+          <div
+            ref={gridRef}
+            onMouseMove={onGridMouseMove}
+            style={{
+              position:"relative",
+              width: GRID_W * CELL_SIZE,
+              height: GRID_H * CELL_SIZE,
+              backgroundImage: state.mapBg
+                ? `url(${state.mapBg})`
+                : `linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)`,
+              backgroundSize: state.mapBg
+                ? "cover"
+                : `${CELL_SIZE}px ${CELL_SIZE}px, ${CELL_SIZE}px ${CELL_SIZE}px`,
+              backgroundPosition: "center",
+              userSelect:"none",
+            }}>
+            {/* Overlay griglia quando c'è mappa */}
+            {state.mapBg && (
+              <div style={{
+                position:"absolute", inset:0, pointerEvents:"none",
+                backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+                backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
+              }} />
+            )}
+
+            {/* TOKEN */}
+            {state.tokens.map(t => {
+              const isTurn = state.tokens[state.turnIdx]?.id === t.id;
+              const isTarget = targetId === t.id;
+              const factionGlow = t.faction === "alleato" ? "rgba(77,255,168,0.5)"
+                : t.faction === "nemico" ? "rgba(255,77,109,0.5)"
+                : "rgba(201,169,110,0.5)";
+              return (
+                <div key={t.id}
+                  onMouseDown={e => onTokenMouseDown(e, t)}
+                  onClick={e => { e.stopPropagation(); setTargetId(t.id); }}
+                  style={{
+                    position:"absolute",
+                    left: t.x * CELL_SIZE,
+                    top: t.y * CELL_SIZE,
+                    width: CELL_SIZE,
+                    height: CELL_SIZE,
+                    padding: 3,
+                    cursor: dragId === t.id ? "grabbing" : "grab",
+                    zIndex: isTarget ? 20 : isTurn ? 15 : 10,
+                  }}>
+                  <div style={{
+                    width:"100%", height:"100%", borderRadius:"50%",
+                    background: t.avatar ? `url(${t.avatar}) center/cover` : t.color,
+                    border: `3px solid ${isTarget ? "var(--gold-bright)" : isTurn ? "var(--purple-bright)" : t.color}`,
+                    boxShadow: isTarget ? `0 0 18px var(--gold)` : isTurn ? `0 0 18px var(--purple)` : `0 0 8px ${factionGlow}`,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.72rem",
+                    color:"white", textShadow:"0 1px 3px rgba(0,0,0,0.9)",
+                    position:"relative",
+                    opacity: t.dead ? 0.3 : 1,
+                    filter: t.dead ? "grayscale(0.8)" : "none",
+                  }}>
+                    {!t.avatar && t.nome.slice(0,2).toUpperCase()}
+                    {t.dead && <span style={{ position:"absolute", fontSize:"1.6rem" }}>💀</span>}
+                    {/* Barra HP */}
+                    <div style={{
+                      position:"absolute", bottom:-8, left:0, right:0, height:4, borderRadius:2,
+                      background:"rgba(0,0,0,0.6)", border:"1px solid rgba(0,0,0,0.8)",
+                    }}>
+                      <div style={{
+                        height:"100%", borderRadius:2,
+                        width: `${Math.max(0, (t.hp_curr/t.hp_max)*100)}%`,
+                        background: t.hp_curr/t.hp_max > 0.6 ? "var(--green)"
+                          : t.hp_curr/t.hp_max > 0.3 ? "var(--gold)" : "var(--red)",
+                        transition:"width 0.3s",
+                      }} />
+                    </div>
+                    {/* Badge rank */}
+                    {t.rank && (
+                      <div style={{
+                        position:"absolute", top:-5, right:-5,
+                        width:16, height:16, borderRadius:"50%",
+                        background:"var(--panel)", border:`1.5px solid ${getRankColor(t.rank)}`,
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize: t.rank.length>=2 ? "0.55rem" : "0.65rem",
+                        color: getRankColor(t.rank), fontWeight:700,
+                      }}>{t.rank}</div>
+                    )}
+                    {/* Icone condizioni */}
+                    {(t.condizioni||[]).length > 0 && (
+                      <div style={{
+                        position:"absolute", top:-5, left:-5,
+                        width:14, height:14, borderRadius:"50%",
+                        background:"var(--red)", display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:"0.6rem", color:"white", fontWeight:700,
+                      }}>{t.condizioni.length}</div>
+                    )}
+                  </div>
+                  {/* Nome sotto token */}
+                  <div style={{
+                    position:"absolute", top:CELL_SIZE-4, left:-10, right:-10,
+                    textAlign:"center", fontSize:"0.62rem", color:"white",
+                    textShadow:"0 1px 3px black, 0 0 6px black",
+                    fontFamily:"'Cinzel',serif", fontWeight:700,
+                    pointerEvents:"none",
+                    whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                  }}>{t.nome}</div>
+                </div>
+              );
+            })}
+
+            {/* Placeholder quando vuoto */}
+            {state.tokens.length === 0 && (
+              <div style={{
+                position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center",
+                pointerEvents:"none", color:"var(--text-dim)", fontSize:"0.9rem",
+              }}>
+                Clicca "+ Aggiungi Token" per iniziare la battaglia
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* PANNELLO LATERALE: Iniziativa + Target Info */}
+        <div style={{ display:"flex", flexDirection:"column", gap:"1rem" }}>
+          {/* Ordine iniziativa */}
+          <div className="card" style={{ padding:"0.75rem" }}>
+            <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Ordine Iniziativa</div>
+            {iniziativaOrdered.length === 0 ? (
+              <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", fontStyle:"italic", padding:"0.5rem" }}>Nessun token in battaglia</div>
+            ) : iniziativaOrdered.map(t => {
+              const isTurn = state.tokens[state.turnIdx]?.id === t.id;
+              return (
+                <div key={t.id} onClick={() => setTargetId(t.id)}
+                  style={{
+                    display:"flex", alignItems:"center", gap:"0.5rem",
+                    padding:"0.4rem 0.5rem", marginBottom:"0.2rem",
+                    background: isTurn ? "rgba(140,110,255,0.15)" : "var(--panel2)",
+                    border: `1px solid ${isTurn ? "var(--purple)" : "var(--border)"}`,
+                    borderRadius:4, cursor:"pointer",
+                    opacity: t.dead ? 0.4 : 1,
+                  }}>
+                  <div style={{
+                    width:24, height:24, borderRadius:"50%",
+                    background: t.avatar ? `url(${t.avatar}) center/cover` : t.color,
+                    border:`2px solid ${t.color}`, flexShrink:0,
+                  }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--text-bright)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{t.nome}</div>
+                    <div style={{ fontSize:"0.68rem", color:"var(--text-dim)" }}>
+                      {t.hp_curr}/{t.hp_max} HP {t.fl_max>0 && `· ${t.fl_curr}/${t.fl_max} FL`}
+                    </div>
+                  </div>
+                  {t.iniziativa !== null && (
+                    <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--gold)", fontSize:"0.85rem" }}>{t.iniziativa}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* PANNELLO TARGET (modal) */}
+      {target && (
+        <div onClick={() => setTargetId(null)} style={{
+          position:"fixed", inset:0, background:"rgba(3,1,8,0.75)", zIndex:150,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+          backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{
+            padding:"1.5rem", maxWidth:520, width:"100%", maxHeight:"86vh", overflowY:"auto",
+            borderTop:`4px solid ${target.color}`,
+          }}>
+            {/* Header target */}
+            <div style={{ display:"flex", gap:"1rem", marginBottom:"1rem", alignItems:"center" }}>
+              <div style={{
+                width:72, height:72, borderRadius:"50%",
+                background: target.avatar ? `url(${target.avatar}) center/cover` : target.color,
+                border:`3px solid ${target.color}`,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"1.2rem",
+                flexShrink:0,
+              }}>
+                {!target.avatar && target.nome.slice(0,2).toUpperCase()}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.3rem", fontWeight:700, color:"var(--text-bright)" }}>{target.nome}</div>
+                <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", flexWrap:"wrap", marginTop:"0.3rem" }}>
+                  {target.rank && <RankBadge rank={target.rank} size="sm" />}
+                  {target.faction && <span style={{ fontSize:"0.7rem", padding:"0.15rem 0.5rem", borderRadius:3, background:target.color+"30", color:target.color, fontFamily:"'Cinzel',serif", fontWeight:600 }}>{target.faction}</span>}
+                  {target.tipo && <span style={{ fontSize:"0.7rem", color:"var(--text-dim)", fontStyle:"italic" }}>{target.tipo}</span>}
+                </div>
+              </div>
+              <button className="btn btn-outline btn-xs" onClick={() => setTargetId(null)}>✕</button>
+            </div>
+
+            {/* Barre HP/FL */}
+            <div style={{ marginBottom:"1rem" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.75rem", marginBottom:"0.2rem" }}>
+                <span style={{ color:"var(--red)", fontFamily:"'Cinzel',serif" }}>HP</span>
+                <span style={{ color:"var(--text-bright)", fontWeight:600 }}>{target.hp_curr} / {target.hp_max}</span>
+              </div>
+              <ProgressBar value={target.hp_curr} max={target.hp_max} color="var(--red)" height={10} />
+              {target.fl_max > 0 && (
+                <>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.75rem", margin:"0.5rem 0 0.2rem" }}>
+                    <span style={{ color:"var(--flux)", fontFamily:"'Cinzel',serif" }}>FL</span>
+                    <span style={{ color:"var(--text-bright)", fontWeight:600 }}>{target.fl_curr} / {target.fl_max}</span>
+                  </div>
+                  <ProgressBar value={target.fl_curr} max={target.fl_max} color="var(--flux)" height={10} />
+                </>
+              )}
+              {target.dif && <div style={{ marginTop:"0.5rem", fontSize:"0.78rem", color:"var(--purple)" }}>DIF: <strong>{target.dif}</strong></div>}
+            </div>
+
+            {/* Azioni danno/cura */}
+            <div style={{ marginBottom:"1rem", padding:"0.75rem", background:"var(--panel2)", borderRadius:6, border:"1px solid var(--border)" }}>
+              <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Azione</div>
+              <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", marginBottom:"0.5rem", flexWrap:"wrap" }}>
+                <input className="input-field" type="number" value={damageInput}
+                  onChange={e => setDamageInput(parseInt(e.target.value)||0)}
+                  style={{ width:80 }} />
+                <button className="btn btn-danger btn-sm" onClick={() => applyToTarget("danno", damageInput)}>💔 Danno</button>
+                <button className="btn btn-success btn-sm" onClick={() => applyToTarget("cura", damageInput)}>💚 Cura</button>
+                <button className="btn btn-primary btn-sm" onClick={() => applyToTarget("fl-cost", damageInput)} disabled={target.fl_max===0}>⚡ −FL</button>
+              </div>
+              <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap" }}>
+                {[-20,-10,-5,-1].map(d => <button key={d} className="btn btn-danger btn-xs" onClick={() => applyToTarget("danno", Math.abs(d))}>{d}</button>)}
+                {[1,5,10,20].map(d => <button key={d} className="btn btn-success btn-xs" onClick={() => applyToTarget("cura", d)}>+{d}</button>)}
+              </div>
+              {target.dead && (
+                <button className="btn btn-gold btn-sm" style={{ marginTop:"0.5rem" }} onClick={() => applyToTarget("revive")}>
+                  ✨ Rianima (1 HP)
+                </button>
+              )}
+            </div>
+
+            {/* Condizioni */}
+            <div style={{ marginBottom:"1rem" }}>
+              <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Condizioni</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:"0.3rem" }}>
+                {CONDIZIONI_BATTLE.map(c => {
+                  const on = (target.condizioni||[]).includes(c);
+                  return (
+                    <button key={c} onClick={() => toggleCondition(c)}
+                      style={{
+                        padding:"0.25rem 0.6rem", borderRadius:12,
+                        border:`1px solid ${on?"var(--red)":"var(--border)"}`,
+                        background: on ? "rgba(255,77,109,0.18)" : "transparent",
+                        color: on ? "var(--red)" : "var(--text-dim)",
+                        fontFamily:"'Cinzel',serif", fontSize:"0.68rem", fontWeight:600,
+                        cursor:"pointer",
+                      }}>{c}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Skill disponibili (se il token ha skill) */}
+            {target.skills && target.skills.length > 0 && (
+              <div style={{ marginBottom:"1rem" }}>
+                <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Azioni disponibili</div>
+                {target.skills.slice(0,5).map((sk,i) => (
+                  <div key={i} style={{ padding:"0.4rem 0.6rem", marginBottom:"0.3rem", background:"var(--panel2)", borderRadius:4, fontSize:"0.78rem" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"0.15rem" }}>
+                      <strong style={{ color:"var(--text-bright)" }}>{sk.nome}</strong>
+                      {sk.costo && <span style={{ color:"var(--flux)", fontSize:"0.7rem" }}>{sk.costo}</span>}
+                    </div>
+                    <div style={{ color:"var(--text-dim)", fontSize:"0.72rem", lineHeight:1.4 }}>{sk.desc}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Azioni finali */}
+            <div style={{ display:"flex", gap:"0.4rem", justifyContent:"space-between", borderTop:"1px solid var(--border)", paddingTop:"0.75rem", flexWrap:"wrap" }}>
+              <button className="btn btn-danger btn-sm" onClick={() => {
+                if (confirm(`Rimuovere ${target.nome} dalla battaglia?`)) {
+                  removeToken(target.id);
+                  addLog(`${target.nome} esce dal campo`, "info");
+                  setTargetId(null);
+                }
+              }}>🗑️ Rimuovi</button>
+              <button className="btn btn-outline btn-sm" onClick={() => setTargetId(null)}>Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PANNELLO AGGIUNGI TOKEN */}
+      {showAddPanel && (
+        <div onClick={() => setShowAddPanel(false)} style={{
+          position:"fixed", inset:0, background:"rgba(3,1,8,0.75)", zIndex:160,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+          backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{
+            padding:"1.5rem", maxWidth:640, width:"100%", maxHeight:"86vh", overflowY:"auto",
+          }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem" }}>
+              <div className="page-title" style={{ fontSize:"1.3rem", margin:0 }}>Aggiungi Token</div>
+              <button className="btn btn-outline btn-xs" onClick={() => setShowAddPanel(false)}>✕</button>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display:"flex", gap:"0.3rem", marginBottom:"1rem", flexWrap:"wrap" }}>
+              {[["schede","📋 Schede"],["bestiario","🐺 Bestiario"],["npc","👤 NPC"],["custom","🎯 Custom"]].map(([id,label]) => (
+                <button key={id} onClick={() => setAddTab(id)}
+                  className={`btn ${addTab===id?"btn-primary":"btn-outline"} btn-sm`}>{label}</button>
+              ))}
+            </div>
+
+            {/* Content */}
+            {addTab === "schede" && (
+              <div>
+                {schedeDisponibili.length === 0 ? (
+                  <div style={{ textAlign:"center", padding:"2rem", color:"var(--text-dim)", fontStyle:"italic" }}>
+                    Nessuna scheda giocatore salvata.<br/>Crea un personaggio dal Generatore.
+                  </div>
+                ) : schedeDisponibili.map(s => (
+                  <div key={s.id} onClick={() => addFromScheda(s)}
+                    className="card" style={{ padding:"0.75rem", marginBottom:"0.4rem", cursor:"pointer", display:"flex", gap:"0.75rem", alignItems:"center" }}>
+                    <div style={{
+                      width:44, height:44, borderRadius:"50%",
+                      background: s.avatar ? `url(${s.avatar}) center/cover` : (s.token_color || "var(--purple)"),
+                      border:"2px solid var(--border)",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.75rem",
+                    }}>{!s.avatar && s.nome.slice(0,2).toUpperCase()}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)" }}>{s.nome}</div>
+                      <div style={{ fontSize:"0.72rem", color:"var(--text-dim)" }}>{s.classeNome} · {s.razzaNome} · Rank {getRankFromPA(s.pa||0)}</div>
+                    </div>
+                    <button className="btn btn-primary btn-xs">+</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {addTab === "bestiario" && <CompactList items={BESTIARIO} onPick={addFromBestia} subtitle={b => b.tipo} />}
+            {addTab === "npc" && <CompactList items={NPCS} onPick={addFromNpc} subtitle={n => n.fazione || n.titolo} />}
+
+            {addTab === "custom" && (
+              <div>
+                <p style={{ fontSize:"0.82rem", color:"var(--text-dim)", marginBottom:"1rem" }}>Crea un token rapido per nemici o PNG non nel Compendio.</p>
+                <div className="grid-2" style={{ marginBottom:"0.75rem" }}>
+                  <div>
+                    <label style={{ fontSize:"0.7rem", color:"var(--text-dim)" }}>Nome</label>
+                    <input className="input-field" value={customToken.nome} onChange={e => setCustomToken(c => ({ ...c, nome:e.target.value }))} placeholder="Brigante, Zombie..." />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:"0.7rem", color:"var(--text-dim)" }}>HP</label>
+                    <input className="input-field" type="number" value={customToken.hp} onChange={e => setCustomToken(c => ({ ...c, hp:e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ marginBottom:"0.75rem" }}>
+                  <label style={{ fontSize:"0.7rem", color:"var(--text-dim)", display:"block", marginBottom:"0.3rem" }}>Colore token</label>
+                  <input type="color" className="input-field" value={customToken.color}
+                    onChange={e => setCustomToken(c => ({ ...c, color:e.target.value }))} style={{ width:80, height:36, padding:2 }} />
+                </div>
+                <button className="btn btn-primary" onClick={addCustom} disabled={!customToken.nome.trim()}>+ Aggiungi</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* LOG BATTAGLIA */}
+      {state.log && state.log.length > 0 && (
+        <div className="card" style={{ padding:"1rem", marginTop:"1rem", maxHeight:200, overflowY:"auto" }}>
+          <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Log Battaglia</div>
+          {state.log.slice(0,20).map((e,i) => {
+            const col = e.type==="danno" ? "var(--red)"
+              : e.type==="cura" ? "var(--green)"
+              : e.type==="skill" ? "var(--purple)"
+              : e.type==="spawn" ? "var(--gold)"
+              : "var(--border)";
+            return (
+              <div key={i} style={{ fontSize:"0.78rem", padding:"0.3rem 0.5rem", marginBottom:"0.15rem", borderLeft:`2px solid ${col}`, background:"var(--panel2)", borderRadius:3 }}>
+                <span style={{ color:"var(--text-mute)", fontSize:"0.68rem", marginRight:"0.4rem", fontFamily:"'JetBrains Mono',monospace" }}>{e.time}</span>
+                {e.msg}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Lista compatta con ricerca (per bestiario/npc nel pannello aggiungi)
+function CompactList({ items, onPick, subtitle }) {
+  const [search, setSearch] = useState("");
+  const [rankF, setRankF] = useState("");
+  const filtered = useMemo(() => items.filter(it => {
+    if (search && !it.nome.toLowerCase().includes(search.toLowerCase())) return false;
+    if (rankF && it.rank !== rankF) return false;
+    return true;
+  }), [items, search, rankF]);
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:"0.5rem", marginBottom:"0.75rem" }}>
+        <input className="input-field" placeholder="Cerca nome..." value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="input-field" value={rankF} onChange={e => setRankF(e.target.value)} style={{ maxWidth:130 }}>
+          <option value="">Tutti Rank</option>
+          {RANKS.map(r => <option key={r} value={r}>Rank {r}</option>)}
+        </select>
+      </div>
+      <div style={{ maxHeight:400, overflowY:"auto" }}>
+        {filtered.slice(0,40).map((it,i) => (
+          <div key={i} onClick={() => onPick(it)}
+            style={{
+              padding:"0.5rem 0.75rem", marginBottom:"0.25rem",
+              background:"var(--panel2)", border:"1px solid var(--border)", borderRadius:4,
+              cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", gap:"0.5rem",
+            }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontFamily:"'Cinzel',serif", fontWeight:600, fontSize:"0.85rem", color:"var(--text-bright)" }}>{it.nome}</div>
+              <div style={{ fontSize:"0.7rem", color:"var(--text-dim)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{subtitle(it)}</div>
+            </div>
+            <RankBadge rank={it.rank} size="sm" />
+            <span style={{ fontSize:"0.7rem", color:"var(--red)" }}>HP {it.hp}</span>
+          </div>
+        ))}
+        {filtered.length > 40 && <div style={{ textAlign:"center", fontSize:"0.75rem", color:"var(--text-dim)", padding:"0.5rem" }}>...e altri {filtered.length-40}. Usa la ricerca.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 // TRACKER PA / PS
 // ═══════════════════════════════════════════════════════
 function TrackerPage() {
@@ -3617,6 +4418,7 @@ export default function App() {
     {id:"compendio", label:"Compendio"},
     {id:"generator", label:"Genera PG"},
     {id:"scheda",    label:"Scheda"},
+    {id:"battle",    label:"Battaglia"},
     {id:"tracker",   label:"Tracker"},
   ];
 
@@ -3626,6 +4428,7 @@ export default function App() {
     compendio: () => <CompendioPage />,
     generator: () => <GeneratorePage setPage={setPage} />,
     scheda:    () => <SchedaGiocabile />,
+    battle:    () => <BattlePage />,
     tracker:   () => <TrackerPage />,
   }[page] || (() => <HomePage setPage={setPage} />);
 
