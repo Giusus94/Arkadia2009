@@ -3398,20 +3398,23 @@ function BattlePage() {
     } catch { return { tokens: [], round: 1, currentTokenId: null, mapBg: null, log: [] }; }
   });
 
-  const [targetId, setTargetId] = useState(null);  // token cliccato (per menu azioni)
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addTab, setAddTab] = useState("schede"); // schede | bestiario | npc | custom
   const [dragId, setDragId] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x:0, y:0 });
   const [damageInput, setDamageInput] = useState(5);
   const [customToken, setCustomToken] = useState({ nome:"", hp:20, color:"#ff4d6d" });
-  // Sistema attacco: attackerId = chi attacca, attackStat = stat usata
+  // MODELLO COMBAT: un solo attaccante selezionato. 2° click su altro token = azione.
   const [attackerId, setAttackerId] = useState(null);
   const [attackStat, setAttackStat] = useState("FOR");
-  const [attackMode, setAttackMode] = useState(false); // true = cliccando scegli target
-  const [pendingDodge, setPendingDodge] = useState(null); // { attId, defId, attTotal, damage, isCrit, pressione }
+  // Quando clicchi un 2° token mentre c'è attackerId, si apre il menu azioni
+  const [actionTargetId, setActionTargetId] = useState(null); // bersaglio del menu azioni
+  // Skill picker
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-  const [skillCasterId, setSkillCasterId] = useState(null); // chi lancia la skill
+  const [skillTargetId, setSkillTargetId] = useState(null); // bersaglio pre-selezionato per skill
+  const [pendingDodge, setPendingDodge] = useState(null);
+  // Pannello "ispeziona" (shift+click o dall'elenco)
+  const [inspectId, setInspectId] = useState(null);
   const gridRef = useRef(null);
   const mapInputRef = useRef(null);
 
@@ -3648,16 +3651,15 @@ function BattlePage() {
     setState({ tokens: [], round: 1, currentTokenId: null, mapBg: state.mapBg, log: [] });
   };
 
-  // Applica danno/cura al target
-  const applyToTarget = (action, value) => {
-    const t = state.tokens.find(x => x.id === targetId);
+  // Applica danno/cura al token con id dato
+  const applyToToken = (tokenId, action, value) => {
+    const t = state.tokens.find(x => x.id === tokenId);
     if (!t) return;
     if (action === "danno") {
       const newHp = Math.max(0, t.hp_curr - Math.abs(value));
       const dead = newHp === 0;
       updateToken(t.id, { hp_curr: newHp, dead });
       addLog(`${t.nome} subisce ${Math.abs(value)} danni → ${newHp}/${t.hp_max}${dead?" · K.O.!":""}`, "danno");
-      if (dead && targetId) setTargetId(null);
     } else if (action === "cura") {
       const newHp = Math.min(t.hp_max, t.hp_curr + Math.abs(value));
       updateToken(t.id, { hp_curr: newHp, dead: newHp === 0 });
@@ -3671,28 +3673,27 @@ function BattlePage() {
       addLog(`${t.nome} torna in piedi (1 HP)`, "cura");
     }
 
-    // Se il token è una scheda → sincronizza con localStorage arcadia_schede_v1
+    // Sync scheda
     if (t.source === "scheda" && t.schedaId) {
       try {
         const raw = localStorage.getItem("arcadia_schede_v1");
         const schede = raw ? JSON.parse(raw) : [];
         const idx = schede.findIndex(s => String(s.id) === String(t.schedaId));
         if (idx >= 0) {
-          const updatedT = { ...t,
-            hp_curr: action==="danno" ? Math.max(0, t.hp_curr - Math.abs(value)) :
-                     action==="cura" ? Math.min(t.hp_max, t.hp_curr + Math.abs(value)) :
-                     action==="revive" ? 1 : t.hp_curr,
-            fl_curr: action==="fl-cost" ? Math.max(0, t.fl_curr - Math.abs(value)) : t.fl_curr,
-          };
-          schede[idx] = { ...schede[idx], hp_curr: updatedT.hp_curr, fl_curr: updatedT.fl_curr };
+          const newHp =
+            action==="danno" ? Math.max(0, t.hp_curr - Math.abs(value)) :
+            action==="cura" ? Math.min(t.hp_max, t.hp_curr + Math.abs(value)) :
+            action==="revive" ? 1 : t.hp_curr;
+          const newFl = action==="fl-cost" ? Math.max(0, t.fl_curr - Math.abs(value)) : t.fl_curr;
+          schede[idx] = { ...schede[idx], hp_curr: newHp, fl_curr: newFl };
           localStorage.setItem("arcadia_schede_v1", JSON.stringify(schede));
         }
       } catch (e) { console.error("sync scheda err:", e); }
     }
   };
 
-  const toggleCondition = (cond) => {
-    const t = state.tokens.find(x => x.id === targetId);
+  const toggleConditionOn = (tokenId, cond) => {
+    const t = state.tokens.find(x => x.id === tokenId);
     if (!t) return;
     const cur = t.condizioni || [];
     const newCond = cur.includes(cond) ? cur.filter(c => c !== cond) : [...cur, cond];
@@ -4127,7 +4128,6 @@ function BattlePage() {
       const logEntries = logLines.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
       return { ...s, tokens: newTokens, log: [...logEntries.reverse(), ...(s.log||[]).slice(0, 99 - logEntries.length)] };
     });
-    setAttackMode(false);
   };
 
   // ═══ SCHIVATA ATTIVA (Reazione universale, cap. 6.7) ═══
@@ -4251,7 +4251,9 @@ function BattlePage() {
     e.target.value = "";
   };
 
-  const target = targetId ? state.tokens.find(t => t.id === targetId) : null;
+  const attacker = attackerId ? state.tokens.find(t => t.id === attackerId) : null;
+  const actionTarget = actionTargetId ? state.tokens.find(t => t.id === actionTargetId) : null;
+  const inspectToken = inspectId ? state.tokens.find(t => t.id === inspectId) : null;
   const currentToken = state.tokens.find(t => t.id === state.currentTokenId);
   const iniziativaOrdered = [...state.tokens].sort((a,b) => (b.iniziativa||0) - (a.iniziativa||0));
 
@@ -4268,14 +4270,6 @@ function BattlePage() {
         <button className="btn btn-primary btn-sm" onClick={() => setShowAddPanel(true)}>+ Aggiungi Token</button>
         <button className="btn btn-gold btn-sm" onClick={rollIniziativa} disabled={!state.tokens.length}>🎲 Tira Iniziativa</button>
         <button className="btn btn-outline btn-sm" onClick={nextTurn} disabled={!state.tokens.length}>Prossimo Turno →</button>
-        <button className="btn btn-primary btn-sm" disabled={!currentToken || !currentToken.skills?.length}
-          onClick={() => {
-            if (!currentToken) return;
-            setSkillCasterId(currentToken.id);
-            setSkillPickerOpen(true);
-          }}>
-          ⚡ Skill {currentToken?.nome ? `(${currentToken.nome})` : ""}
-        </button>
         <label className="btn btn-outline btn-sm" style={{ cursor:"pointer" }}>
           🗺️ Carica Mappa
           <input ref={mapInputRef} type="file" accept="image/*" onChange={uploadMap} style={{ display:"none" }} />
@@ -4323,26 +4317,56 @@ function BattlePage() {
         </div>
       )}
 
-      {/* Banner modalità attacco */}
-      {attackMode && attackerId && (() => {
-        const att = state.tokens.find(t => t.id === attackerId);
-        return (
-          <div style={{
-            padding:"0.75rem 1rem", marginBottom:"1rem",
-            background:"linear-gradient(135deg, rgba(255,77,109,0.15), rgba(140,110,255,0.08))",
-            border:"1px solid var(--red)", borderRadius:6,
-            display:"flex", justifyContent:"space-between", alignItems:"center", gap:"1rem", flexWrap:"wrap",
-          }}>
+      {/* Banner Attaccante selezionato */}
+      {attacker && !attacker.dead && (
+        <div style={{
+          padding:"0.75rem 1rem", marginBottom:"1rem",
+          background:"linear-gradient(135deg, rgba(255,77,109,0.12), rgba(140,110,255,0.05))",
+          border:"2px solid var(--red)", borderRadius:6,
+          display:"flex", justifyContent:"space-between", alignItems:"center", gap:"1rem", flexWrap:"wrap",
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"0.75rem" }}>
+            <div style={{
+              width:40, height:40, borderRadius:"50%",
+              background: attacker.avatar ? `url(${attacker.avatar}) center/cover` : attacker.color,
+              border:"2px solid var(--red)",
+              boxShadow:"0 0 12px rgba(255,77,109,0.6)",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.8rem",
+              flexShrink:0,
+            }}>
+              {!attacker.avatar && attacker.nome.slice(0,2).toUpperCase()}
+            </div>
             <div>
-              <strong style={{ color:"var(--red)" }}>⚔️ Modalità attacco attiva</strong>
-              <div style={{ fontSize:"0.8rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
-                {att?.nome} · stat {attackStat} ({modStat((att?.stats||{})[attackStat])>=0?"+":""}{modStat((att?.stats||{})[attackStat])}) · Clicca sul bersaglio sulla mappa
+              <div style={{ fontSize:"0.65rem", color:"var(--red)", textTransform:"uppercase", letterSpacing:"0.14em", fontFamily:"'Cinzel',serif", fontWeight:700 }}>⚔️ Attaccante selezionato</div>
+              <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.95rem" }}>{attacker.nome}</div>
+              <div style={{ fontSize:"0.72rem", color:"var(--text-dim)", marginTop:"0.1rem" }}>
+                Clicca un altro token per attaccarlo · stat: {attackStat}
               </div>
             </div>
-            <button className="btn btn-outline btn-sm" onClick={() => { setAttackMode(false); setAttackerId(null); }}>✕ Annulla</button>
           </div>
-        );
-      })()}
+          <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", flexWrap:"wrap" }}>
+            {["FOR","AGI","INT","PER"].map(s => (
+              <button key={s} onClick={() => setAttackStat(s)}
+                style={{
+                  padding:"0.25rem 0.55rem", borderRadius:4, fontSize:"0.72rem",
+                  fontFamily:"'Cinzel',serif", fontWeight:700,
+                  border:`1px solid ${attackStat===s?"var(--red)":"var(--border)"}`,
+                  background: attackStat===s ? "rgba(255,77,109,0.2)" : "var(--panel)",
+                  color: attackStat===s ? "var(--red)" : "var(--text-dim)",
+                  cursor:"pointer",
+                }}>
+                {s}
+              </button>
+            ))}
+            <button className="btn btn-primary btn-sm" disabled={!attacker.skills?.length}
+              onClick={() => { setSkillTargetId(null); setSkillPickerOpen(true); }}>
+              ⚡ Skill
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => setAttackerId(null)}>✕ Deseleziona</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:"1rem", alignItems:"start" }}>
         {/* MAPPA */}
@@ -4384,40 +4408,44 @@ function BattlePage() {
             {/* TOKEN */}
             {state.tokens.map(t => {
               const isTurn = state.currentTokenId === t.id;
-              const isTarget = targetId === t.id;
               const isAttacker = attackerId === t.id;
-              const isValidDodgeTarget = attackMode && attackerId && attackerId !== t.id && !t.dead;
+              const hasAttacker = !!attackerId && !!attacker && !attacker.dead;
+              const canBeHit = hasAttacker && !isAttacker && !t.dead;
               const factionGlow = t.faction === "alleato" ? "rgba(77,255,168,0.5)"
                 : t.faction === "nemico" ? "rgba(255,77,109,0.5)"
                 : "rgba(201,169,110,0.5)";
               return (
                 <div key={t.id}
-                  onMouseDown={e => { if (!attackMode) onTokenMouseDown(e, t); }}
+                  onMouseDown={e => { if (!hasAttacker) onTokenMouseDown(e, t); }}
                   onClick={e => {
                     e.stopPropagation();
-                    if (attackMode && attackerId) {
-                      if (attackerId === t.id) {
-                        // Blocco auto-attacco: notifica e non fare niente
-                        addLog(`${t.nome} non può attaccare sé stesso`, "info");
-                        return;
-                      }
-                      if (t.dead) {
-                        addLog(`${t.nome} è già K.O. — seleziona un altro bersaglio`, "info");
-                        return;
-                      }
-                      executeAttack(attackerId, t.id, attackStat);
-                    } else {
-                      // Apri come BERSAGLIO. Pre-imposta l'attaccante come il token in turno (se valido e diverso dal target cliccato)
-                      setTargetId(t.id);
-                      const curr = state.currentTokenId;
-                      const currToken = state.tokens.find(x => x.id === curr);
-                      if (curr && curr !== t.id && currToken && !currToken.dead) {
-                        setAttackerId(curr);
-                      } else {
-                        // Cliccato proprio sul token in turno: diventa lui "attaccante" inteso come "che fa qualcosa"
-                        setAttackerId(null);
-                      }
+                    // Shift+click = ispeziona (no cambio attaccante)
+                    if (e.shiftKey) {
+                      setInspectId(t.id);
+                      return;
                     }
+                    // Modello: 1° click → seleziona attaccante. 2° click su token diverso → apre menu azioni
+                    if (!attackerId) {
+                      // Nessun attaccante ancora: seleziona questo come attaccante (se vivo)
+                      if (t.dead) {
+                        addLog(`${t.nome} è K.O. — non può essere selezionato`, "info");
+                        return;
+                      }
+                      setAttackerId(t.id);
+                      return;
+                    }
+                    if (attackerId === t.id) {
+                      // Stesso token: deseleziona
+                      setAttackerId(null);
+                      return;
+                    }
+                    // Token diverso + attaccante presente = apre menu azioni su questo bersaglio
+                    if (t.dead) {
+                      // Morto: offri cura/rianimazione direttamente
+                      setActionTargetId(t.id);
+                      return;
+                    }
+                    setActionTargetId(t.id);
                   }}
                   style={{
                     position:"absolute",
@@ -4426,25 +4454,23 @@ function BattlePage() {
                     width: CELL_SIZE,
                     height: CELL_SIZE,
                     padding: 3,
-                    cursor: attackMode
-                      ? (isAttacker ? "not-allowed" : isValidDodgeTarget ? "crosshair" : "not-allowed")
-                      : dragId === t.id ? "grabbing" : "grab",
-                    zIndex: isTarget ? 20 : isTurn ? 15 : 10,
+                    cursor: hasAttacker
+                      ? (isAttacker ? "pointer" : "crosshair")
+                      : dragId === t.id ? "grabbing" : "pointer",
+                    zIndex: isAttacker ? 20 : isTurn ? 15 : 10,
                   }}>
                   <div style={{
                     width:"100%", height:"100%", borderRadius:"50%",
                     background: t.avatar ? `url(${t.avatar}) center/cover` : t.color,
                     border: `3px solid ${
                       isAttacker ? "var(--red)" :
-                      isTarget ? "var(--gold-bright)" :
                       isTurn ? "var(--purple-bright)" :
                       t.color
                     }`,
                     boxShadow:
                       isAttacker ? `0 0 22px rgba(255,77,109,0.9)` :
-                      isTarget ? `0 0 18px var(--gold)` :
                       isTurn ? `0 0 18px var(--purple)` :
-                      isValidDodgeTarget ? `0 0 14px rgba(255,77,109,0.6)` :
+                      canBeHit ? `0 0 14px rgba(255,77,109,0.5)` :
                       `0 0 8px ${factionGlow}`,
                     display:"flex", alignItems:"center", justifyContent:"center",
                     fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.72rem",
@@ -4454,14 +4480,14 @@ function BattlePage() {
                     filter: t.dead ? "grayscale(0.8)" : "none",
                     transition: "box-shadow 0.2s, border-color 0.2s",
                   }}>
-                    {/* Icona attaccante o bersaglio */}
+                    {/* Icona attaccante */}
                     {isAttacker && (
                       <div style={{
                         position:"absolute", top:-18, left:"50%", transform:"translateX(-50%)",
                         fontSize:"1rem", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.8))",
                       }}>⚔️</div>
                     )}
-                    {isValidDodgeTarget && (
+                    {canBeHit && (
                       <div style={{
                         position:"absolute", inset:-6, borderRadius:"50%",
                         border:"2px dashed var(--red)", animation:"spin 3s linear infinite",
@@ -4539,16 +4565,7 @@ function BattlePage() {
             ) : iniziativaOrdered.map(t => {
               const isTurn = state.currentTokenId === t.id;
               return (
-                <div key={t.id} onClick={() => {
-                    setTargetId(t.id);
-                    const curr = state.currentTokenId;
-                    const currToken = state.tokens.find(x => x.id === curr);
-                    if (curr && curr !== t.id && currToken && !currToken.dead) {
-                      setAttackerId(curr);
-                    } else {
-                      setAttackerId(null);
-                    }
-                  }}
+                <div key={t.id} onClick={() => setInspectId(t.id)}
                   style={{
                     display:"flex", alignItems:"center", gap:"0.5rem",
                     padding:"0.4rem 0.5rem", marginBottom:"0.2rem",
@@ -4578,245 +4595,192 @@ function BattlePage() {
         </div>
       </div>
 
-      {/* PANNELLO TARGET (modal) */}
-      {target && (
-        <div onClick={() => setTargetId(null)} style={{
+      {/* MENU AZIONI contestuale — appare quando attaccante + bersaglio selezionato */}
+      {attacker && actionTarget && !actionTarget.dead && attacker.id !== actionTarget.id && (
+        <div onClick={() => setActionTargetId(null)} style={{
           position:"fixed", inset:0, background:"rgba(3,1,8,0.75)", zIndex:150,
           display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
           backdropFilter:"blur(4px)",
         }}>
           <div onClick={e => e.stopPropagation()} className="card" style={{
-            padding:"1.5rem", maxWidth:520, width:"100%", maxHeight:"86vh", overflowY:"auto",
-            borderTop:`4px solid ${target.color}`,
+            padding:"1.2rem", maxWidth:480, width:"100%", maxHeight:"86vh", overflowY:"auto",
           }}>
-            {/* Header target — mostro chiaramente "Bersaglio" */}
-            <div style={{ display:"flex", gap:"1rem", marginBottom:"0.5rem", alignItems:"center" }}>
+            {/* Header: A attacca B */}
+            <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", marginBottom:"1rem", flexWrap:"wrap" }}>
               <div style={{
-                width:72, height:72, borderRadius:"50%",
-                background: target.avatar ? `url(${target.avatar}) center/cover` : target.color,
-                border:`3px solid ${target.color}`,
+                width:48, height:48, borderRadius:"50%",
+                background: attacker.avatar ? `url(${attacker.avatar}) center/cover` : attacker.color,
+                border:"2px solid var(--red)",
+                boxShadow:"0 0 12px rgba(255,77,109,0.6)",
                 display:"flex", alignItems:"center", justifyContent:"center",
-                color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"1.2rem",
+                color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.8rem",
                 flexShrink:0,
-                boxShadow: `0 0 20px ${target.color}80`,
               }}>
-                {!target.avatar && target.nome.slice(0,2).toUpperCase()}
+                {!attacker.avatar && attacker.nome.slice(0,2).toUpperCase()}
+              </div>
+              <div style={{ fontSize:"1.5rem", color:"var(--red)" }}>→</div>
+              <div style={{
+                width:48, height:48, borderRadius:"50%",
+                background: actionTarget.avatar ? `url(${actionTarget.avatar}) center/cover` : actionTarget.color,
+                border:`2px solid ${actionTarget.color}`,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.8rem",
+                flexShrink:0,
+              }}>
+                {!actionTarget.avatar && actionTarget.nome.slice(0,2).toUpperCase()}
+              </div>
+              <div style={{ flex:1, minWidth:160 }}>
+                <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1rem", fontWeight:700, color:"var(--text-bright)" }}>
+                  <span style={{ color:"var(--red)" }}>{attacker.nome}</span> → <span style={{ color:actionTarget.color }}>{actionTarget.nome}</span>
+                </div>
+                <div style={{ fontSize:"0.72rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+                  HP {actionTarget.hp_curr}/{actionTarget.hp_max} · DIF {actionTarget.dif} · FL {actionTarget.fl_curr}/{actionTarget.fl_max}
+                </div>
+              </div>
+              <button className="btn btn-outline btn-xs" onClick={() => setActionTargetId(null)}>✕</button>
+            </div>
+
+            {/* Scelta stat */}
+            <div style={{ display:"flex", gap:"0.3rem", alignItems:"center", marginBottom:"0.75rem", flexWrap:"wrap" }}>
+              <span style={{ fontSize:"0.72rem", color:"var(--text-dim)" }}>Stat:</span>
+              {["FOR","AGI","INT","PER"].map(s => (
+                <button key={s} onClick={() => setAttackStat(s)}
+                  style={{
+                    padding:"0.2rem 0.55rem", borderRadius:4, fontSize:"0.72rem",
+                    fontFamily:"'Cinzel',serif", fontWeight:700,
+                    border:`1px solid ${attackStat===s?"var(--red)":"var(--border)"}`,
+                    background: attackStat===s ? "rgba(255,77,109,0.2)" : "var(--panel)",
+                    color: attackStat===s ? "var(--red)" : "var(--text-dim)",
+                    cursor:"pointer",
+                  }}>{s}</button>
+              ))}
+              <span style={{ fontSize:"0.7rem", color:"var(--text-dim)", marginLeft:"0.4rem" }}>
+                ({modStat((attacker.stats||{})[attackStat])>=0?"+":""}{modStat((attacker.stats||{})[attackStat])})
+              </span>
+            </div>
+
+            {/* Azioni principali */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.4rem", marginBottom:"0.75rem" }}>
+              <button className="btn btn-danger" onClick={() => {
+                executeAttack(attacker.id, actionTarget.id, attackStat);
+                setActionTargetId(null);
+              }}>
+                🎲 Tira Attacco
+              </button>
+              <button className="btn btn-primary" disabled={!attacker.skills?.length} onClick={() => {
+                setSkillTargetId(actionTarget.id);
+                setSkillPickerOpen(true);
+                setActionTargetId(null);
+              }}>
+                ⚡ Usa Skill
+              </button>
+            </div>
+
+            {/* Azioni manuali GM (danno/cura/condizioni) */}
+            <details>
+              <summary style={{ cursor:"pointer", color:"var(--text-dim)", fontSize:"0.78rem", marginBottom:"0.5rem" }}>
+                Applica manualmente (GM)
+              </summary>
+              <div style={{ padding:"0.6rem", background:"var(--panel2)", borderRadius:4, border:"1px solid var(--border)" }}>
+                <div style={{ display:"flex", gap:"0.3rem", alignItems:"center", marginBottom:"0.4rem", flexWrap:"wrap" }}>
+                  <input className="input-field" type="number" value={damageInput}
+                    onChange={e => setDamageInput(parseInt(e.target.value)||0)} style={{ width:70 }} />
+                  <button className="btn btn-danger btn-xs" onClick={() => applyToToken(actionTarget.id, "danno", damageInput)}>💔 Danno</button>
+                  <button className="btn btn-success btn-xs" onClick={() => applyToToken(actionTarget.id, "cura", damageInput)}>💚 Cura</button>
+                  <button className="btn btn-primary btn-xs" onClick={() => applyToToken(actionTarget.id, "fl-cost", damageInput)} disabled={actionTarget.fl_max===0}>⚡ −FL</button>
+                </div>
+                <div style={{ fontSize:"0.68rem", color:"var(--text-dim)", marginBottom:"0.3rem" }}>Condizioni:</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:"0.2rem" }}>
+                  {CONDIZIONI_BATTLE.map(c => {
+                    const on = (actionTarget.condizioni||[]).includes(c);
+                    return (
+                      <button key={c} onClick={() => toggleConditionOn(actionTarget.id, c)}
+                        style={{
+                          padding:"0.15rem 0.45rem", borderRadius:10,
+                          border:`1px solid ${on?"var(--red)":"var(--border)"}`,
+                          background: on ? "rgba(255,77,109,0.18)" : "transparent",
+                          color: on ? "var(--red)" : "var(--text-dim)",
+                          fontFamily:"'Cinzel',serif", fontSize:"0.62rem", fontWeight:600,
+                          cursor:"pointer",
+                        }}>{c}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {/* PANNELLO ISPEZIONA (shift+click) */}
+      {inspectToken && (
+        <div onClick={() => setInspectId(null)} style={{
+          position:"fixed", inset:0, background:"rgba(3,1,8,0.75)", zIndex:150,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+          backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{
+            padding:"1.2rem", maxWidth:460, width:"100%", maxHeight:"86vh", overflowY:"auto",
+            borderTop:`4px solid ${inspectToken.color}`,
+          }}>
+            <div style={{ display:"flex", gap:"0.75rem", marginBottom:"0.75rem", alignItems:"center" }}>
+              <div style={{
+                width:56, height:56, borderRadius:"50%",
+                background: inspectToken.avatar ? `url(${inspectToken.avatar}) center/cover` : inspectToken.color,
+                border:`3px solid ${inspectToken.color}`,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"1rem",
+                flexShrink:0,
+              }}>
+                {!inspectToken.avatar && inspectToken.nome.slice(0,2).toUpperCase()}
               </div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:"0.68rem", color:"var(--gold)", textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'Cinzel',serif", fontWeight:700, marginBottom:"0.2rem" }}>🎯 Bersaglio</div>
-                <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.3rem", fontWeight:700, color:"var(--text-bright)" }}>{target.nome}</div>
-                <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", flexWrap:"wrap", marginTop:"0.3rem" }}>
-                  {target.rank && <RankBadge rank={target.rank} size="sm" />}
-                  {target.faction && <span style={{ fontSize:"0.7rem", padding:"0.15rem 0.5rem", borderRadius:3, background:target.color+"30", color:target.color, fontFamily:"'Cinzel',serif", fontWeight:600 }}>{target.faction}</span>}
-                  {target.tipo && <span style={{ fontSize:"0.7rem", color:"var(--text-dim)", fontStyle:"italic" }}>{target.tipo}</span>}
+                <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.1rem", fontWeight:700, color:"var(--text-bright)" }}>{inspectToken.nome}</div>
+                <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap", marginTop:"0.2rem" }}>
+                  {inspectToken.rank && <RankBadge rank={inspectToken.rank} size="sm" />}
+                  <span style={{ fontSize:"0.68rem", padding:"0.1rem 0.4rem", borderRadius:3, background:inspectToken.color+"30", color:inspectToken.color, fontFamily:"'Cinzel',serif", fontWeight:600 }}>{inspectToken.faction}</span>
                 </div>
               </div>
-              <button className="btn btn-outline btn-xs" onClick={() => setTargetId(null)}>✕</button>
+              <button className="btn btn-outline btn-xs" onClick={() => setInspectId(null)}>✕</button>
             </div>
-
-            {/* Banner chiaro: chi è l'attaccante? */}
-            {currentToken && currentToken.id !== target.id && !currentToken.dead && (
-              <div style={{
-                padding:"0.6rem 0.9rem", marginBottom:"1rem",
-                background:"rgba(140,110,255,0.1)",
-                border:"1px solid var(--purple)",
-                borderRadius:6,
-                display:"flex", alignItems:"center", gap:"0.75rem",
-              }}>
-                <div style={{
-                  width:36, height:36, borderRadius:"50%",
-                  background: currentToken.avatar ? `url(${currentToken.avatar}) center/cover` : currentToken.color,
-                  border:`2px solid var(--purple)`,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  color:"white", fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.75rem",
-                  flexShrink:0,
-                }}>
-                  {!currentToken.avatar && currentToken.nome.slice(0,2).toUpperCase()}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:"0.68rem", color:"var(--purple-bright)", textTransform:"uppercase", letterSpacing:"0.12em", fontFamily:"'Cinzel',serif", fontWeight:700 }}>⚔️ Attaccante (turno attuale)</div>
-                  <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.95rem" }}>{currentToken.nome}</div>
-                </div>
-              </div>
-            )}
-
-            {/* Barre HP/FL */}
-            <div style={{ marginBottom:"1rem" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.75rem", marginBottom:"0.2rem" }}>
-                <span style={{ color:"var(--red)", fontFamily:"'Cinzel',serif" }}>HP</span>
-                <span style={{ color:"var(--text-bright)", fontWeight:600 }}>{target.hp_curr} / {target.hp_max}</span>
-              </div>
-              <ProgressBar value={target.hp_curr} max={target.hp_max} color="var(--red)" height={10} />
-              {target.fl_max > 0 && (
-                <>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.75rem", margin:"0.5rem 0 0.2rem" }}>
-                    <span style={{ color:"var(--flux)", fontFamily:"'Cinzel',serif" }}>FL</span>
-                    <span style={{ color:"var(--text-bright)", fontWeight:600 }}>{target.fl_curr} / {target.fl_max}</span>
-                  </div>
-                  <ProgressBar value={target.fl_curr} max={target.fl_max} color="var(--flux)" height={10} />
-                </>
-              )}
-              {target.dif && <div style={{ marginTop:"0.5rem", fontSize:"0.78rem", color:"var(--purple)" }}>DIF: <strong>{target.dif}</strong></div>}
-              {target.stats && (
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:"0.2rem", marginTop:"0.5rem" }}>
-                  {Object.entries(target.stats).map(([k,v]) => (
-                    <div key={k} style={{ textAlign:"center", padding:"0.2rem", background:"var(--panel)", borderRadius:3 }}>
-                      <div style={{ fontSize:"0.58rem", color:"var(--text-dim)" }}>{k}</div>
-                      <div style={{ fontSize:"0.78rem", fontWeight:700, color:"var(--text-bright)" }}>{v}</div>
-                      <div style={{ fontSize:"0.6rem", color:"var(--purple-bright)" }}>{modStat(v)>=0?"+":""}{modStat(v)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* ⚔️ TIRO D'ATTACCO — regole manuale v7 */}
-            {target.stats && !target.dead && (
-              <div style={{ marginBottom:"1rem", padding:"0.75rem", background:"rgba(255,77,109,0.06)", borderRadius:6, border:"1px solid rgba(255,77,109,0.3)" }}>
-                <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem", color:"var(--red)" }}>⚔️ Tiro d'Attacco</div>
-                {attackerId && (() => {
-                  const att = state.tokens.find(t => t.id === attackerId);
-                  if (!att) return null;
-                  const mod = modStat((att.stats||{})[attackStat]);
-                  const br = RANK_BDIF[att.rank] || 0;
-                  return (
-                    <div style={{ marginBottom:"0.5rem", fontSize:"0.82rem", color:"var(--text-bright)", padding:"0.5rem 0.7rem", background:"var(--panel)", borderRadius:4, border:"1px solid var(--border)" }}>
-                      <strong style={{ color:"var(--purple-bright)" }}>{att.nome}</strong> attacca <strong style={{ color:target.color }}>{target.nome}</strong>
-                      <div style={{ fontSize:"0.72rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
-                        Tiro: 1d20 {mod>=0?"+":""}{mod} ({attackStat}){br>0?` +${br} Rank`:""} · Danno: {att.dado_danno || "1d6"} {mod>=0?"+":""}{mod} · vs DIF {target.dif}
-                      </div>
-                    </div>
-                  );
-                })()}
-                <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.5rem", flexWrap:"wrap", alignItems:"center" }}>
-                  <label style={{ fontSize:"0.72rem", color:"var(--text-dim)" }}>Caratteristica:</label>
-                  {["FOR","AGI","RES","INT","PER","CAR"].map(s => (
-                    <button key={s} onClick={() => setAttackStat(s)}
-                      style={{
-                        padding:"0.25rem 0.6rem", borderRadius:4, fontSize:"0.75rem",
-                        fontFamily:"'Cinzel',serif", fontWeight:700,
-                        border:`1px solid ${attackStat===s?"var(--red)":"var(--border)"}`,
-                        background: attackStat===s ? "rgba(255,77,109,0.2)" : "var(--panel)",
-                        color: attackStat===s ? "var(--red)" : "var(--text-dim)",
-                        cursor:"pointer",
-                      }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-                <details style={{ marginBottom:"0.5rem", fontSize:"0.75rem" }}>
-                  <summary style={{ cursor:"pointer", color:"var(--text-dim)" }}>Cambia attaccante (default: token in turno)</summary>
-                  <select className="input-field" value={attackerId || ""} onChange={e => setAttackerId(e.target.value || null)} style={{ marginTop:"0.4rem", fontSize:"0.82rem" }}>
-                    <option value="">Nessuno</option>
-                    {state.tokens.filter(t => t.id !== target.id && !t.dead).map(t => (
-                      <option key={t.id} value={t.id}>{t.nome} {t.rank && `(R.${t.rank})`}</option>
-                    ))}
-                  </select>
-                </details>
-                <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap" }}>
-                  <button className="btn btn-danger btn-sm" disabled={!attackerId}
-                    onClick={() => {
-                      if (!attackerId) return;
-                      executeAttack(attackerId, target.id, attackStat);
-                      setTargetId(null);
-                    }}>
-                    🎲 Tira Attacco
-                  </button>
-                  <button className="btn btn-primary btn-sm" disabled={!attackerId}
-                    onClick={() => {
-                      if (!attackerId) return;
-                      const att = state.tokens.find(t => t.id === attackerId);
-                      if (!att || !att.skills?.length) {
-                        addLog(`${att?.nome || "Attaccante"} non ha skill utilizzabili`, "info");
-                        return;
-                      }
-                      setSkillCasterId(attackerId);
-                      setSkillPickerOpen(true);
-                    }}>
-                    ⚡ Usa Skill
-                  </button>
-                  <button className="btn btn-outline btn-sm" disabled={!attackerId}
-                    onClick={() => {
-                      if (!attackerId) return;
-                      setAttackMode(true);
-                      setTargetId(null);
-                    }}>
-                    🎯 Punta sulla mappa
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Azioni danno/cura manuali (override/GM) */}
-            <div style={{ marginBottom:"1rem", padding:"0.75rem", background:"var(--panel2)", borderRadius:6, border:"1px solid var(--border)" }}>
-              <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Applica manualmente (GM)</div>
-              <div style={{ display:"flex", gap:"0.4rem", alignItems:"center", marginBottom:"0.5rem", flexWrap:"wrap" }}>
-                <input className="input-field" type="number" value={damageInput}
-                  onChange={e => setDamageInput(parseInt(e.target.value)||0)}
-                  style={{ width:80 }} />
-                <button className="btn btn-danger btn-sm" onClick={() => applyToTarget("danno", damageInput)}>💔 Danno</button>
-                <button className="btn btn-success btn-sm" onClick={() => applyToTarget("cura", damageInput)}>💚 Cura</button>
-                <button className="btn btn-primary btn-sm" onClick={() => applyToTarget("fl-cost", damageInput)} disabled={target.fl_max===0}>⚡ −FL</button>
-              </div>
-              <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap" }}>
-                {[-20,-10,-5,-1].map(d => <button key={d} className="btn btn-danger btn-xs" onClick={() => applyToTarget("danno", Math.abs(d))}>{d}</button>)}
-                {[1,5,10,20].map(d => <button key={d} className="btn btn-success btn-xs" onClick={() => applyToTarget("cura", d)}>+{d}</button>)}
-              </div>
-              {target.dead && (
-                <button className="btn btn-gold btn-sm" style={{ marginTop:"0.5rem" }} onClick={() => applyToTarget("revive")}>
-                  ✨ Rianima (1 HP)
-                </button>
-              )}
-            </div>
-
-            {/* Condizioni */}
-            <div style={{ marginBottom:"1rem" }}>
-              <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Condizioni</div>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:"0.3rem" }}>
-                {CONDIZIONI_BATTLE.map(c => {
-                  const on = (target.condizioni||[]).includes(c);
-                  return (
-                    <button key={c} onClick={() => toggleCondition(c)}
-                      style={{
-                        padding:"0.25rem 0.6rem", borderRadius:12,
-                        border:`1px solid ${on?"var(--red)":"var(--border)"}`,
-                        background: on ? "rgba(255,77,109,0.18)" : "transparent",
-                        color: on ? "var(--red)" : "var(--text-dim)",
-                        fontFamily:"'Cinzel',serif", fontSize:"0.68rem", fontWeight:600,
-                        cursor:"pointer",
-                      }}>{c}</button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Skill disponibili (se il token ha skill) */}
-            {target.skills && target.skills.length > 0 && (
-              <div style={{ marginBottom:"1rem" }}>
-                <div className="section-title" style={{ marginBottom:"0.5rem", fontSize:"0.72rem" }}>Azioni disponibili</div>
-                {target.skills.slice(0,5).map((sk,i) => (
-                  <div key={i} style={{ padding:"0.4rem 0.6rem", marginBottom:"0.3rem", background:"var(--panel2)", borderRadius:4, fontSize:"0.78rem" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"0.15rem" }}>
-                      <strong style={{ color:"var(--text-bright)" }}>{sk.nome}</strong>
-                      {sk.costo && <span style={{ color:"var(--flux)", fontSize:"0.7rem" }}>{sk.costo}</span>}
-                    </div>
-                    <div style={{ color:"var(--text-dim)", fontSize:"0.72rem", lineHeight:1.4 }}>{sk.desc}</div>
+            {/* Stats */}
+            {inspectToken.stats && (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:"0.2rem", marginBottom:"0.75rem" }}>
+                {Object.entries(inspectToken.stats).map(([k,v]) => (
+                  <div key={k} style={{ textAlign:"center", padding:"0.3rem", background:"var(--panel2)", borderRadius:3 }}>
+                    <div style={{ fontSize:"0.58rem", color:"var(--text-dim)" }}>{k}</div>
+                    <div style={{ fontSize:"0.85rem", fontWeight:700, color:"var(--text-bright)" }}>{v}</div>
+                    <div style={{ fontSize:"0.6rem", color:"var(--purple-bright)" }}>{modStat(v)>=0?"+":""}{modStat(v)}</div>
                   </div>
                 ))}
               </div>
             )}
-
-            {/* Azioni finali */}
-            <div style={{ display:"flex", gap:"0.4rem", justifyContent:"space-between", borderTop:"1px solid var(--border)", paddingTop:"0.75rem", flexWrap:"wrap" }}>
-              <button className="btn btn-danger btn-sm" onClick={() => {
-                if (confirm(`Rimuovere ${target.nome} dalla battaglia?`)) {
-                  removeToken(target.id);
-                  addLog(`${target.nome} esce dal campo`, "info");
-                  setTargetId(null);
-                }
-              }}>🗑️ Rimuovi</button>
-              <button className="btn btn-outline btn-sm" onClick={() => setTargetId(null)}>Chiudi</button>
+            <div style={{ marginBottom:"0.75rem" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.72rem", marginBottom:"0.2rem" }}>
+                <span style={{ color:"var(--red)" }}>HP</span>
+                <span>{inspectToken.hp_curr}/{inspectToken.hp_max}</span>
+              </div>
+              <ProgressBar value={inspectToken.hp_curr} max={inspectToken.hp_max} color="var(--red)" height={8} />
+              {inspectToken.fl_max > 0 && (
+                <>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:"0.72rem", margin:"0.4rem 0 0.2rem" }}>
+                    <span style={{ color:"var(--flux)" }}>FL</span>
+                    <span>{inspectToken.fl_curr}/{inspectToken.fl_max}</span>
+                  </div>
+                  <ProgressBar value={inspectToken.fl_curr} max={inspectToken.fl_max} color="var(--flux)" height={8} />
+                </>
+              )}
+              <div style={{ fontSize:"0.72rem", color:"var(--purple)", marginTop:"0.4rem" }}>DIF: {inspectToken.dif}</div>
             </div>
+            {/* Rimuovi */}
+            <button className="btn btn-danger btn-sm" onClick={() => {
+              if (confirm(`Rimuovere ${inspectToken.nome} dalla battaglia?`)) {
+                removeToken(inspectToken.id);
+                addLog(`${inspectToken.nome} esce dal campo`, "info");
+                setInspectId(null);
+                if (attackerId === inspectToken.id) setAttackerId(null);
+              }
+            }}>🗑️ Rimuovi dal campo</button>
           </div>
         </div>
       )}
@@ -4868,13 +4832,13 @@ function BattlePage() {
         );
       })()}
 
-      {/* MODAL SKILL PICKER — scegli skill e bersaglio */}
-      {skillPickerOpen && skillCasterId && (() => {
-        const caster = state.tokens.find(t => t.id === skillCasterId);
-        if (!caster) { setSkillPickerOpen(false); setSkillCasterId(null); return null; }
+      {/* MODAL SKILL PICKER — scegli skill (caster = attaccante selezionato) */}
+      {skillPickerOpen && attacker && (() => {
+        const caster = attacker;
+        if (!caster) { setSkillPickerOpen(false); return null; }
         const skills = caster.skills || [];
         return (
-          <div onClick={() => { setSkillPickerOpen(false); setSkillCasterId(null); }}
+          <div onClick={() => { setSkillPickerOpen(false); setSkillTargetId(null); }}
             style={{
               position:"fixed", inset:0, background:"rgba(3,1,8,0.85)", zIndex:200,
               display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
@@ -4893,7 +4857,7 @@ function BattlePage() {
                     Flusso attuale: <strong style={{ color:"var(--flux)" }}>{caster.fl_curr}/{caster.fl_max}</strong>
                   </div>
                 </div>
-                <button className="btn btn-outline btn-xs" onClick={() => { setSkillPickerOpen(false); setSkillCasterId(null); }}>✕ Chiudi</button>
+                <button className="btn btn-outline btn-xs" onClick={() => { setSkillPickerOpen(false); setSkillTargetId(null); }}>✕ Chiudi</button>
               </div>
 
               {skills.length === 0 ? (
@@ -4970,7 +4934,7 @@ function BattlePage() {
                       </div>
                     ) : needsTarget ? (
                       <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap", alignItems:"center" }}>
-                        <select className="input-field" id={`tgt-${i}`} style={{ flex:1, minWidth:150, fontSize:"0.82rem" }} defaultValue="">
+                        <select className="input-field" id={`tgt-${i}`} style={{ flex:1, minWidth:150, fontSize:"0.82rem" }} defaultValue={skillTargetId || ""}>
                           <option value="">Scegli bersaglio...</option>
                           {validTargets.map(t => (
                             <option key={t.id} value={t.id}>{t.nome} (HP {t.hp_curr}/{t.hp_max})</option>
@@ -4979,10 +4943,10 @@ function BattlePage() {
                         <button className="btn btn-primary btn-sm" disabled={!canAfford}
                           onClick={() => {
                             const sel = document.getElementById(`tgt-${i}`);
-                            const tgtId = sel?.value;
+                            const tgtId = sel?.value || skillTargetId;
                             if (!tgtId) { alert("Scegli un bersaglio prima di lanciare la skill."); return; }
                             useSkill(caster.id, sk, tgtId);
-                            setSkillPickerOpen(false); setSkillCasterId(null); setTargetId(null);
+                            setSkillPickerOpen(false); setSkillTargetId(null);
                           }}>
                           Usa
                         </button>
@@ -4991,7 +4955,7 @@ function BattlePage() {
                       <button className="btn btn-primary btn-sm" disabled={!canAfford}
                         onClick={() => {
                           useSkill(caster.id, sk, caster.id);
-                          setSkillPickerOpen(false); setSkillCasterId(null); setTargetId(null);
+                          setSkillPickerOpen(false); setSkillTargetId(null);
                         }}>
                         Usa su te stesso
                       </button>
