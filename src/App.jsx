@@ -4365,9 +4365,9 @@ function BattlePage() {
       if (dist === 0) return s; // non mosso
       const vel = t.velocita || 6;
       const usedBefore = t.movimentoUsato || 0;
-      const principalLeft = Math.max(0, vel - usedBefore);
-      const bonusLeft = t.azioneBonusUsata ? 0 : Math.floor(vel/2);
-      const budgetLeft = principalLeft + bonusLeft;
+      const baseLeft = Math.max(0, vel - usedBefore); // movimento libero residuo
+      const extraLeft = t.azioneBonusUsata ? 0 : Math.floor(vel/2); // Movimento breve (Azione Bonus)
+      const budgetLeft = baseLeft + extraLeft;
 
       if (dist > budgetLeft) {
         // Ripristina posizione iniziale
@@ -4376,20 +4376,21 @@ function BattlePage() {
         return { ...s, tokens: newTokens, log: [newLog, ...(s.log||[]).slice(0,99)] };
       }
 
-      // Scala il costo: prima Azione Principale, poi Azione Bonus
+      // Movimento normale (fino a Velocità m) NON consuma Azione Principale né Bonus
+      // (cap. 6.5: "Il personaggio può distribuire liberamente il proprio movimento").
+      // Solo il movimento EXTRA oltre Velocità consuma Azione Bonus ("Movimento breve: metà Velocità").
       const newUsed = usedBefore + dist;
-      let newPrincipale = t.azionePrincipaleUsata;
       let newBonus = t.azioneBonusUsata;
-      if (!newPrincipale && newUsed > 0) newPrincipale = true; // movimento consuma Azione Principale
-      if (newUsed > vel) newBonus = true; // eccesso oltre Velocità usa anche Azione Bonus
+      if (newUsed > vel && !newBonus) {
+        newBonus = true; // sforare Velocità → usi il Movimento breve come Azione Bonus
+      }
 
       const newTokens = s.tokens.map(x => x.id === t.id ? {
         ...x,
         movimentoUsato: newUsed,
-        azionePrincipaleUsata: newPrincipale,
         azioneBonusUsata: newBonus,
       } : x);
-      const newLog = { msg: `🏃 ${t.nome} si muove ${dist}m (totale ${newUsed}/${vel}${newBonus?` + bonus ${Math.floor(vel/2)}`:""})`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
+      const newLog = { msg: `🏃 ${t.nome} si muove ${dist}m (totale ${newUsed}/${vel}${newUsed > vel ? ` + ${newUsed-vel}m bonus (Azione Bonus)` : "m"})`, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) };
       return { ...s, tokens: newTokens, log: [newLog, ...(s.log||[]).slice(0,99)] };
     });
     dragStartRef.current = null;
