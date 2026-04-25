@@ -1887,7 +1887,7 @@ function TokenCanvas({ char, rank }) {
   return <canvas ref={ref} className="token-canvas" style={{ width:80, height:80, borderRadius:"50%" }} />;
 }
 
-function SchedaGiocabile() {
+function SchedaGiocabile({ setPage }) {
   const defaultChar = useCallback(() => {
     const c = CLASSI[0];
     const r = RAZZE[0];
@@ -1958,6 +1958,7 @@ function SchedaGiocabile() {
   const [tab, setTab] = useState("info"); // info | combat | skills | progress | log
   const [hasInitialized, setHasInitialized] = useState(false);
   const [rankUpEvent, setRankUpEvent] = useState(null); // {oldRank, newRank, newHp, newFl, newDif}
+  const [showCreateChoice, setShowCreateChoice] = useState(false); // modale scelta tra manuale e dadi
   const avatarRef = useRef(null);
 
   // Scrive in localStorage solo DOPO il primo render (evita di sovrascrivere al mount)
@@ -2051,6 +2052,80 @@ function SchedaGiocabile() {
   if (!char) {
     return (
       <div className="anim-fade-in">
+        {/* MODAL SCELTA CREAZIONE SCHEDA */}
+        {showCreateChoice && (
+          <div onClick={() => setShowCreateChoice(false)} style={{
+            position:"fixed", inset:0, background:"rgba(3,1,8,0.92)", zIndex:300,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+            backdropFilter:"blur(8px)",
+          }}>
+            <div onClick={e => e.stopPropagation()} className="card anim-fade-in" style={{
+              padding:"2rem", maxWidth:600, width:"100%",
+              borderTop:"4px solid var(--purple)",
+              boxShadow:"0 0 60px rgba(140,110,255,0.3)",
+              position:"relative",
+            }}>
+              <button onClick={() => setShowCreateChoice(false)} style={{
+                position:"absolute", top:"0.75rem", right:"0.75rem",
+                background:"transparent", border:"1px solid var(--border)",
+                color:"var(--text-dim)", cursor:"pointer", fontSize:"1rem",
+                borderRadius:6, padding:"0.3rem 0.6rem",
+              }}>✕</button>
+              <div style={{ textAlign:"center", marginBottom:"1.5rem" }}>
+                <div style={{ fontSize:"2rem", marginBottom:"0.5rem" }}>✦</div>
+                <div style={{ fontFamily:"'Cinzel',serif", fontSize:"0.85rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.18em", marginBottom:"0.4rem" }}>
+                  Nuova Scheda
+                </div>
+                <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.6rem", color:"var(--text-bright)", fontWeight:700 }}>
+                  Come vuoi creare il tuo personaggio?
+                </div>
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem", marginBottom:"0.5rem" }}>
+                {/* Card MANUALE */}
+                <div onClick={() => { setShowCreateChoice(false); newPG(); }} style={{
+                  padding:"1.5rem 1rem", borderRadius:8, cursor:"pointer",
+                  background:"var(--panel2)", border:"2px solid var(--border)",
+                  textAlign:"center", transition:"all 0.2s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--purple)"; e.currentTarget.style.background = "rgba(140,110,255,0.08)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--panel2)"; }}
+                >
+                  <div style={{ fontSize:"3rem", marginBottom:"0.6rem" }}>✍️</div>
+                  <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.05rem", color:"var(--text-bright)", fontWeight:700, marginBottom:"0.4rem" }}>
+                    Manuale
+                  </div>
+                  <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", lineHeight:1.5 }}>
+                    Scegli ogni dettaglio: classe, razza, frammento, stat. Pieno controllo.
+                  </div>
+                </div>
+
+                {/* Card CASUALE / DADI */}
+                <div onClick={() => { setShowCreateChoice(false); setPage && setPage("generator"); }} style={{
+                  padding:"1.5rem 1rem", borderRadius:8, cursor:"pointer",
+                  background:"var(--panel2)", border:"2px solid var(--border)",
+                  textAlign:"center", transition:"all 0.2s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--gold)"; e.currentTarget.style.background = "rgba(212,168,67,0.08)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--panel2)"; }}
+                >
+                  <div style={{ fontSize:"3rem", marginBottom:"0.6rem" }}>🎲</div>
+                  <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.05rem", color:"var(--text-bright)", fontWeight:700, marginBottom:"0.4rem" }}>
+                    Casuale (Dadi)
+                  </div>
+                  <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", lineHeight:1.5 }}>
+                    Lascia che il caos di Arkadia2099 decida classe, razza e frammento con i dadi.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ fontSize:"0.72rem", color:"var(--text-mute)", textAlign:"center", marginTop:"1rem", fontStyle:"italic" }}>
+                Potrai sempre cambiare i dettagli dopo la creazione.
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ marginBottom:"2rem" }}>
           <div className="section-title">Scheda del Personaggio</div>
           <div className="page-title">Le tue Schede Giocabili</div>
@@ -2058,7 +2133,7 @@ function SchedaGiocabile() {
         </div>
 
         <div style={{ display:"flex", gap:"0.75rem", marginBottom:"1.5rem", flexWrap:"wrap" }}>
-          <button className="btn btn-primary" onClick={newPG}>+ Nuova Scheda</button>
+          <button className="btn btn-primary" onClick={() => setShowCreateChoice(true)}>+ Nuova Scheda</button>
           <label className="btn btn-outline" style={{ cursor:"pointer" }}>
             📂 Importa JSON
             <input type="file" accept=".json" onChange={importJSON} style={{ display:"none" }} />
@@ -2070,9 +2145,9 @@ function SchedaGiocabile() {
             <div style={{ fontSize:"3rem", marginBottom:"1rem" }}>📜</div>
             <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.1rem", color:"var(--text-bright)", marginBottom:"0.5rem" }}>Nessuna scheda ancora creata</div>
             <p style={{ color:"var(--text-dim)", fontSize:"0.9rem", marginBottom:"1.5rem" }}>
-              Inizia creando una nuova scheda oppure generandone una dal Generatore Personaggio.
+              Inizia creando una nuova scheda. Puoi compilarla manualmente o lasciare che il caos di Arkadia2099 decida per te con un lancio di dadi.
             </p>
-            <button className="btn btn-gold" onClick={newPG}>✦ Crea la Prima Scheda</button>
+            <button className="btn btn-gold" onClick={() => setShowCreateChoice(true)}>✦ Crea la Prima Scheda</button>
           </div>
         ) : (
           <div className="grid-2">
@@ -5962,7 +6037,7 @@ export default function App() {
     wiki:      () => <WikiPage />,
     compendio: () => <CompendioPage />,
     generator: () => <GeneratorePage setPage={setPage} />,
-    scheda:    () => <SchedaGiocabile />,
+    scheda:    () => <SchedaGiocabile setPage={setPage} />,
     battle:    () => <BattlePage />,
     tracker:   () => <TrackerPage />,
   }[page] || (() => <HomePage setPage={setPage} />);
