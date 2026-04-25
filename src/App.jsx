@@ -1957,6 +1957,7 @@ function SchedaGiocabile() {
   });
   const [tab, setTab] = useState("info"); // info | combat | skills | progress | log
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [rankUpEvent, setRankUpEvent] = useState(null); // {oldRank, newRank, newHp, newFl, newDif}
   const avatarRef = useRef(null);
 
   // Scrive in localStorage solo DOPO il primo render (evita di sovrascrivere al mount)
@@ -2171,6 +2172,64 @@ function SchedaGiocabile() {
 
   return (
     <div className="anim-fade-in">
+      {/* MODAL RANK UP CELEBRATIVA */}
+      {rankUpEvent && (
+        <div onClick={() => setRankUpEvent(null)} style={{
+          position:"fixed", inset:0, background:"rgba(3,1,8,0.92)", zIndex:300,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+          backdropFilter:"blur(8px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} className="card anim-fade-in" style={{
+            padding:"2.5rem 2rem", maxWidth:520, width:"100%", textAlign:"center",
+            borderTop:`4px solid ${getRankColor(rankUpEvent.newRank)}`,
+            boxShadow:`0 0 60px ${getRankColor(rankUpEvent.newRank)}80`,
+          }}>
+            <div style={{ fontSize:"3rem", marginBottom:"0.5rem" }}>🎉</div>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"0.85rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.18em", marginBottom:"0.4rem" }}>
+              Rank Up
+            </div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:"1.5rem", marginBottom:"1rem" }}>
+              <div style={{
+                fontFamily:"'Cinzel Decorative',serif", fontSize:"3rem", fontWeight:700,
+                color:getRankColor(rankUpEvent.oldRank), opacity:0.5,
+              }}>{rankUpEvent.oldRank}</div>
+              <div style={{ fontSize:"2rem", color:"var(--gold)" }}>→</div>
+              <div style={{
+                fontFamily:"'Cinzel Decorative',serif", fontSize:"5rem", fontWeight:900,
+                color:getRankColor(rankUpEvent.newRank),
+                textShadow:`0 0 30px ${getRankColor(rankUpEvent.newRank)}80`,
+              }}>{rankUpEvent.newRank}</div>
+            </div>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.1rem", color:"var(--gold)", marginBottom:"1.5rem", fontStyle:"italic" }}>
+              {rankUpEvent.titolo}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"0.75rem", marginBottom:"1.5rem" }}>
+              <div style={{ padding:"0.75rem", background:"var(--panel2)", borderRadius:6 }}>
+                <div style={{ fontSize:"0.65rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>HP</div>
+                <div style={{ fontSize:"0.9rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>{rankUpEvent.hp_old}</div>
+                <div style={{ fontSize:"1.4rem", color:"var(--red)", fontWeight:700 }}>{rankUpEvent.hp_new}</div>
+                <div style={{ fontSize:"0.7rem", color:"var(--green)", marginTop:"0.1rem" }}>+{rankUpEvent.hp_new - rankUpEvent.hp_old}</div>
+              </div>
+              <div style={{ padding:"0.75rem", background:"var(--panel2)", borderRadius:6 }}>
+                <div style={{ fontSize:"0.65rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>Flusso</div>
+                <div style={{ fontSize:"0.9rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>{rankUpEvent.fl_old}</div>
+                <div style={{ fontSize:"1.4rem", color:"var(--flux)", fontWeight:700 }}>{rankUpEvent.fl_new}</div>
+                <div style={{ fontSize:"0.7rem", color:"var(--green)", marginTop:"0.1rem" }}>+{rankUpEvent.fl_new - rankUpEvent.fl_old}</div>
+              </div>
+              <div style={{ padding:"0.75rem", background:"var(--panel2)", borderRadius:6 }}>
+                <div style={{ fontSize:"0.65rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>Difesa</div>
+                <div style={{ fontSize:"0.9rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>{rankUpEvent.dif_old}</div>
+                <div style={{ fontSize:"1.4rem", color:"var(--purple)", fontWeight:700 }}>{rankUpEvent.dif_new}</div>
+                <div style={{ fontSize:"0.7rem", color: rankUpEvent.dif_new > rankUpEvent.dif_old ? "var(--green)" : "var(--text-mute)", marginTop:"0.1rem" }}>
+                  {rankUpEvent.dif_new > rankUpEvent.dif_old ? `+${rankUpEvent.dif_new - rankUpEvent.dif_old}` : "—"}
+                </div>
+              </div>
+            </div>
+            <button className="btn btn-gold btn-lg" onClick={() => setRankUpEvent(null)}>✨ Continua</button>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom:"1.5rem" }}>
         <button className="btn btn-outline btn-sm no-print" onClick={() => setSelectedId(null)}>← Torna alle schede</button>
       </div>
@@ -2462,7 +2521,7 @@ function SchedaGiocabile() {
       )}
 
       {/* ═══════ TAB PROGRESSIONE ═══════ */}
-      {tab === "progress" && <ProgressTab char={char} rank={rank} rankNext={rankNext} cls={cls} razza={razza} updateChar={updateChar} addLog={addLog} />}
+      {tab === "progress" && <ProgressTab char={char} rank={rank} rankNext={rankNext} cls={cls} razza={razza} updateChar={updateChar} addLog={addLog} onRankUp={setRankUpEvent} />}
 
       {/* ═══════ TAB LOG ═══════ */}
       {tab === "log" && (
@@ -2529,6 +2588,52 @@ function CombatTab({ char, cls, stats, hp_max, fl_max, dif, rank, hpChange, flCh
 
   const d20 = (b=0) => { const d = Math.floor(Math.random()*20)+1; return { d, total:d+b, crit:d===20, fumble:d===1 }; };
 
+  // ═══ TIRI SALVEZZA MORTALI (cap. 6.9) ═══
+  // A 0 HP, all'inizio di ogni proprio turno tira 1d20:
+  // - 20 nat: torni a 1 HP. - 10-19: 1 successo. - 2-9: 1 fallimento. - 1 nat: 2 fallimenti.
+  // 3 successi → Stabilizzato (incosciente, non muori). 3 fallimenti → MORTE.
+  const tiroSalvezzaMortale = () => {
+    if ((char.hp_curr ?? 0) > 0) {
+      addLog("Non puoi tirare TS Mortali: hai HP > 0", "info");
+      return;
+    }
+    if ((char.morti_succ || 0) >= 3 || (char.morti_fall || 0) >= 3) {
+      addLog("Lo stato è già determinato (Stabilizzato o Morto)", "info");
+      return;
+    }
+    const r = Math.floor(Math.random() * 20) + 1;
+    let succ = char.morti_succ || 0;
+    let fall = char.morti_fall || 0;
+    let msg = `🩸 TS Mortale: d20=${r} → `;
+    let updates = {};
+    if (r === 20) {
+      msg += "20 NAT! Recuperi conoscenza con 1 HP";
+      updates = { hp_curr: 1, morti_succ: 0, morti_fall: 0 };
+    } else if (r === 1) {
+      fall += 2;
+      msg += `1 NAT! 2 fallimenti (${succ} succ / ${fall} fall)`;
+      updates = { morti_fall: fall };
+    } else if (r >= 10) {
+      succ += 1;
+      msg += `Successo (${succ} succ / ${fall} fall)`;
+      updates = { morti_succ: succ };
+    } else {
+      fall += 1;
+      msg += `Fallimento (${succ} succ / ${fall} fall)`;
+      updates = { morti_fall: fall };
+    }
+    if (succ >= 3) {
+      msg += " · ✓ STABILIZZATO (incosciente, salvo)";
+      updates = { ...updates, morti_succ: 3 };
+    }
+    if (fall >= 3) {
+      msg += " · ☠️ MORTE";
+      updates = { ...updates, morti_fall: 3 };
+    }
+    addLog(msg, fall >= 3 ? "danno" : succ >= 3 ? "heal" : "info");
+    updateChar(updates);
+  };
+
   const doAtk = () => {
     const b = modSta(stats[atkStat]) + rankIdx;
     const r = d20(b);
@@ -2553,20 +2658,121 @@ function CombatTab({ char, cls, stats, hp_max, fl_max, dif, rank, hpChange, flCh
     addLog(`Iniziativa: d20=${r.d}+${b}=${r.total}`, "skill");
   };
   const shortRest = () => {
+    if (!confirm(`Riposo Breve (10-30 min)?\nRecuperi:\n  • 25% HP (${Math.floor(hp_max * 0.25)})\n  • 30% Flusso (${Math.floor(fl_max * 0.3)})\n  • Reset Reazione e condizioni minori`)) return;
     const hg = Math.floor(hp_max * 0.25);
     const fg = Math.floor(fl_max * 0.3);
     const nh = Math.min(hp_max, (char.hp_curr||0) + hg);
     const nf = Math.min(fl_max, (char.fl_curr||0) + fg);
-    addLog(`Riposo breve: +${hg} HP, +${fg} FL`, "heal");
-    updateChar({ hp_curr: nh, fl_curr: nf });
+    // Rimuovi condizioni temporanee (non permanenti)
+    const condTemp = ["Stordito","Spaventato","Concentrato","Benedetto","Bruciante"];
+    const newCond = (char.condizioni || []).filter(c => !condTemp.includes(c));
+    addLog(`🌙 Riposo Breve: +${hg} HP (${nh}/${hp_max}), +${fg} FL (${nf}/${fl_max}) · condizioni temporanee rimosse`, "heal");
+    updateChar({ hp_curr: nh, fl_curr: nf, condizioni: newCond });
   };
   const longRest = () => {
-    addLog("Riposo lungo: pieno ripristino", "heal");
-    updateChar({ hp_curr: hp_max, fl_curr: fl_max, scintille: char.scintille_max || 3, condizioni: [] });
+    if (!confirm(`Riposo Lungo (8h)?\nRipristino completo:\n  • HP, Flusso al massimo\n  • Scintille al massimo\n  • Tutte le condizioni rimosse\n  • Tutte le abilità "1/giorno" si resettano`)) return;
+    addLog(`☀️ Riposo Lungo: HP ${hp_max}/${hp_max}, FL ${fl_max}/${fl_max}, Scintille ${char.scintille_max||3}/${char.scintille_max||3} · tutte le condizioni rimosse`, "heal");
+    updateChar({
+      hp_curr: hp_max,
+      fl_curr: fl_max,
+      scintille: char.scintille_max || 3,
+      condizioni: [],
+      morti_succ: 0,
+      morti_fall: 0,
+    });
   };
 
   return (
     <>
+      {/* PANNELLO TIRI SALVEZZA MORTALI — appare solo a 0 HP */}
+      {(char.hp_curr ?? 1) <= 0 && (char.morti_fall || 0) < 3 && (char.morti_succ || 0) < 3 && (
+        <div className="card" style={{
+          padding:"1.5rem", marginBottom:"1rem",
+          background:"linear-gradient(135deg, rgba(255,77,109,0.15), rgba(0,0,0,0.5))",
+          border:"2px solid var(--red)",
+          boxShadow:"0 0 24px rgba(255,77,109,0.3)",
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", marginBottom:"1rem" }}>
+            <div style={{ fontSize:"2rem" }}>🩸</div>
+            <div>
+              <div className="section-title" style={{ color:"var(--red)", marginBottom:"0.2rem" }}>Tiri Salvezza Mortali</div>
+              <div style={{ fontSize:"0.78rem", color:"var(--text-dim)" }}>
+                Sei a 0 HP. Tira 1d20 a inizio turno. 3 successi → Stabilizzato. 3 fallimenti → Morte.
+              </div>
+            </div>
+          </div>
+          {/* Indicatori successi/fallimenti */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", marginBottom:"1rem" }}>
+            <div style={{ padding:"0.6rem", background:"var(--panel2)", borderRadius:6, border:"1px solid var(--green)" }}>
+              <div style={{ fontSize:"0.65rem", color:"var(--green)", textTransform:"uppercase", letterSpacing:"0.1em", fontWeight:700 }}>Successi</div>
+              <div style={{ display:"flex", gap:"0.4rem", marginTop:"0.4rem" }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{
+                    width:24, height:24, borderRadius:"50%",
+                    border:"2px solid var(--green)",
+                    background: (char.morti_succ||0) > i ? "var(--green)" : "transparent",
+                    transition:"background 0.3s",
+                  }} />
+                ))}
+              </div>
+            </div>
+            <div style={{ padding:"0.6rem", background:"var(--panel2)", borderRadius:6, border:"1px solid var(--red)" }}>
+              <div style={{ fontSize:"0.65rem", color:"var(--red)", textTransform:"uppercase", letterSpacing:"0.1em", fontWeight:700 }}>Fallimenti</div>
+              <div style={{ display:"flex", gap:"0.4rem", marginTop:"0.4rem" }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{
+                    width:24, height:24, borderRadius:"50%",
+                    border:"2px solid var(--red)",
+                    background: (char.morti_fall||0) > i ? "var(--red)" : "transparent",
+                    transition:"background 0.3s",
+                  }} />
+                ))}
+              </div>
+            </div>
+          </div>
+          <button className="btn btn-danger btn-lg" onClick={tiroSalvezzaMortale} style={{ width:"100%" }}>
+            🎲 Tira Salvezza Mortale (1d20)
+          </button>
+          <div style={{ fontSize:"0.7rem", color:"var(--text-mute)", marginTop:"0.5rem", textAlign:"center", fontStyle:"italic" }}>
+            Regola: 20 nat → 1 HP · 10-19 → successo · 2-9 → fallimento · 1 nat → 2 fallimenti
+          </div>
+        </div>
+      )}
+
+      {/* MESSAGGIO STABILIZZATO */}
+      {(char.hp_curr ?? 1) <= 0 && (char.morti_succ || 0) >= 3 && (
+        <div className="card" style={{ padding:"1rem", marginBottom:"1rem", background:"rgba(77,255,168,0.08)", border:"1px solid var(--green)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"0.75rem" }}>
+            <div style={{ fontSize:"1.6rem" }}>✓</div>
+            <div>
+              <div style={{ fontFamily:"'Cinzel',serif", color:"var(--green)", fontWeight:700 }}>Stabilizzato</div>
+              <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", marginTop:"0.2rem" }}>
+                Incosciente ma salvo. Recuperi 1 HP dopo 1 ora di riposo, o subito con cure di un alleato.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MESSAGGIO MORTE */}
+      {(char.hp_curr ?? 1) <= 0 && (char.morti_fall || 0) >= 3 && (
+        <div className="card" style={{ padding:"1.5rem", marginBottom:"1rem", background:"linear-gradient(135deg, rgba(0,0,0,0.6), rgba(255,77,109,0.15))", border:"2px solid var(--red)" }}>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontSize:"3rem", marginBottom:"0.4rem" }}>☠️</div>
+            <div style={{ fontFamily:"'Cinzel Decorative',serif", color:"var(--red)", fontSize:"1.4rem", fontWeight:700 }}>{char.nome} è caduto</div>
+            <div style={{ fontSize:"0.82rem", color:"var(--text-dim)", marginTop:"0.5rem", maxWidth:400, margin:"0.5rem auto 1rem" }}>
+              Il personaggio è morto. Il GM può applicare le regole di resurrezione del manuale, oppure si crea un nuovo PG.
+            </div>
+            <button className="btn btn-outline btn-sm" onClick={() => {
+              if (confirm("Resettare i Tiri Salvezza Mortali (es. dopo cure)?")) {
+                updateChar({ morti_succ: 0, morti_fall: 0, hp_curr: 1 });
+                addLog("Stato resettato: 1 HP", "heal");
+              }
+            }}>↻ Reset (cure ricevute)</button>
+          </div>
+        </div>
+      )}
+
       {/* TIRO D'ATTACCO */}
       <div className="card" style={{ padding:"1.5rem", marginBottom:"1rem", background:"linear-gradient(135deg, rgba(255,77,109,0.04), rgba(140,110,255,0.04))", borderColor:"rgba(255,77,109,0.25)" }}>
         <div className="section-title" style={{ color:"var(--red)", marginBottom:"1rem" }}>⚔️ Tiro d'Attacco</div>
@@ -2723,7 +2929,7 @@ function CombatTab({ char, cls, stats, hp_max, fl_max, dif, rank, hpChange, flCh
   );
 }
 
-function ProgressTab({ char, rank, rankNext, cls, razza, updateChar, addLog }) {
+function ProgressTab({ char, rank, rankNext, cls, razza, updateChar, addLog, onRankUp }) {
   const [paInp, setPaInp] = useState(50);
   const rankIdx = RANKS.indexOf(rank);
 
@@ -2739,15 +2945,36 @@ function ProgressTab({ char, rank, rankNext, cls, razza, updateChar, addLog }) {
     addLog(`${amt>0?"+":""}${amt} PA → ${np.toLocaleString()} PA totali`, "level");
     if (nIdx > oIdx) {
       const newRank = RANKS[nIdx];
+      const oldRank = RANKS[oIdx];
       let nhp = Math.round(cls.hp * RANK_MHP[newRank]);
+      let ohp = Math.round(cls.hp * RANK_MHP[oldRank]);
       if (typeof razza.mod_hp === "number") {
-        if (razza.mod_hp < 0 && razza.mod_hp > -1) nhp = Math.ceil(nhp * (1 + razza.mod_hp));
-        else nhp += razza.mod_hp;
+        if (razza.mod_hp < 0 && razza.mod_hp > -1) {
+          nhp = Math.ceil(nhp * (1 + razza.mod_hp));
+          ohp = Math.ceil(ohp * (1 + razza.mod_hp));
+        } else {
+          nhp += razza.mod_hp;
+          ohp += razza.mod_hp;
+        }
       }
       let nfl = Math.round(cls.fl * RANK_MFL[newRank]);
-      if (typeof razza.mod_fl === "number" && razza.mod_fl < 0) nfl = Math.floor(nfl * (1 + razza.mod_fl));
-      addLog(`🎉 RANK UP! ${RANKS[oIdx]} → ${newRank} — ${RANK_TITOLI[newRank]}`, "level");
+      let ofl = Math.round(cls.fl * RANK_MFL[oldRank]);
+      if (typeof razza.mod_fl === "number" && razza.mod_fl < 0) {
+        nfl = Math.floor(nfl * (1 + razza.mod_fl));
+        ofl = Math.floor(ofl * (1 + razza.mod_fl));
+      }
+      const ndif = cls.dif + RANK_BDIF[newRank] + (char.armatura||0);
+      const odif = cls.dif + RANK_BDIF[oldRank] + (char.armatura||0);
+      addLog(`🎉 RANK UP! ${oldRank} → ${newRank} — ${RANK_TITOLI[newRank]}`, "level");
       updateChar({ pa: np, hp_curr: nhp, fl_curr: nfl });
+      // Modal celebrativa
+      if (onRankUp) onRankUp({
+        oldRank, newRank,
+        titolo: RANK_TITOLI[newRank],
+        hp_old: ohp, hp_new: nhp,
+        fl_old: ofl, fl_new: nfl,
+        dif_old: odif, dif_new: ndif,
+      });
     } else {
       updateChar({ pa: np });
     }
@@ -4034,19 +4261,21 @@ function BattlePage() {
           const dead = newHp === 0;
           logLines.push(`💔 ${target.nome}: ${target.hp_curr} → ${newHp} HP${dead?" · K.O.!":""}`);
 
-          // Applica condizioni estratte
+          // Applica condizioni estratte (con durata se la skill la specifica)
           let appliedList = [];
           const newTargetCond = [...(target.condizioni || [])];
+          const newTargetCondDur = { ...(target.condizioniDur || {}) };
           for (const c of parsed.appliedConditions) {
             if (!newTargetCond.includes(c)) {
               newTargetCond.push(c);
               appliedList.push(c);
             }
+            if (parsed.duration) newTargetCondDur[c] = parsed.duration;
           }
-          if (appliedList.length) logLines.push(`⚡ Applicato: ${appliedList.join(", ")}`);
+          if (appliedList.length) logLines.push(`⚡ Applicato: ${appliedList.join(", ")}${parsed.duration?` (${parsed.duration}t)`:""}`);
 
           newTokens = newTokens.map(t =>
-            t.id === target.id ? { ...t, hp_curr: newHp, dead, condizioni: newTargetCond } : t
+            t.id === target.id ? { ...t, hp_curr: newHp, dead, condizioni: newTargetCond, condizioniDur: newTargetCondDur } : t
           );
 
           // Sync scheda
@@ -4082,16 +4311,21 @@ function BattlePage() {
       // Se è solo condizione applicata (no attacco, no cura)
       else if (parsed.appliedConditions.length > 0 && target && target.id !== caster.id) {
         const newCond = [...(target.condizioni||[])];
+        const newCondDur = { ...(target.condizioniDur||{}) };
         let appliedList = [];
         for (const c of parsed.appliedConditions) {
           if (!newCond.includes(c)) {
             newCond.push(c);
             appliedList.push(c);
           }
+          // Imposta/aggiorna durata se la skill la specifica
+          if (parsed.duration) {
+            newCondDur[c] = parsed.duration;
+          }
         }
         if (appliedList.length) {
           logLines.push(`⚡ ${target.nome}: applicato ${appliedList.join(", ")}${parsed.duration?` per ${parsed.duration}t`:""}`);
-          newTokens = newTokens.map(t => t.id === target.id ? { ...t, condizioni: newCond } : t);
+          newTokens = newTokens.map(t => t.id === target.id ? { ...t, condizioni: newCond, condizioniDur: newCondDur } : t);
         }
       }
       // Altrimenti è un effetto non automatizzato: logga solo
@@ -4351,18 +4585,49 @@ function BattlePage() {
       const t = s.tokens.find(x => x.id === tokenId);
       if (!t || t.dead) return s;
       const cond = t.condizioni || [];
+      const condDur = { ...(t.condizioniDur || {}) };
       let hpChange = 0;
       let logs = [];
+
+      // Effetti danno per condizione (Bruciante)
       if (cond.includes("Bruciante")) {
         const d = rollDado("1d4");
         hpChange -= d;
         logs.push(`🔥 ${t.nome} Bruciante: -${d} HP`);
       }
-      if (hpChange === 0) return s;
+
+      // Scala durate: -1 a tutte le condizioni con durata, rimuovi quelle scadute
+      let condRemoved = [];
+      const newCond = [];
+      for (const c of cond) {
+        if (condDur[c] !== undefined) {
+          condDur[c] -= 1;
+          if (condDur[c] <= 0) {
+            condRemoved.push(c);
+            delete condDur[c];
+          } else {
+            newCond.push(c);
+          }
+        } else {
+          // Condizione senza durata (permanente / GM-managed): non scala
+          newCond.push(c);
+        }
+      }
+      if (condRemoved.length) {
+        logs.push(`⏱️ ${t.nome}: scaduta ${condRemoved.join(", ")}`);
+      }
+
+      if (hpChange === 0 && condRemoved.length === 0) return s;
       const newHp = Math.max(0, t.hp_curr + hpChange);
       const dead = newHp === 0;
-      const newTokens = s.tokens.map(x => x.id === tokenId ? { ...x, hp_curr: newHp, dead } : x);
-      const newLog = logs.map(msg => ({ msg, type:"danno", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
+      const newTokens = s.tokens.map(x => x.id === tokenId ? {
+        ...x,
+        hp_curr: newHp,
+        dead,
+        condizioni: newCond,
+        condizioniDur: condDur,
+      } : x);
+      const newLog = logs.map(msg => ({ msg, type:"info", time:new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) }));
       return { ...s, tokens: newTokens, log: [...newLog.reverse(), ...(s.log||[]).slice(0, 99)] };
     });
   };
@@ -4957,6 +5222,7 @@ function BattlePage() {
                 <div style={{ display:"flex", flexWrap:"wrap", gap:"0.2rem" }}>
                   {CONDIZIONI_BATTLE.map(c => {
                     const on = (actionTarget.condizioni||[]).includes(c);
+                    const dur = (actionTarget.condizioniDur||{})[c];
                     return (
                       <button key={c} onClick={() => toggleConditionOn(actionTarget.id, c)}
                         style={{
@@ -4966,7 +5232,7 @@ function BattlePage() {
                           color: on ? "var(--red)" : "var(--text-dim)",
                           fontFamily:"'Cinzel',serif", fontSize:"0.62rem", fontWeight:600,
                           cursor:"pointer",
-                        }}>{c}</button>
+                        }}>{c}{dur ? ` (${dur}t)` : ""}</button>
                     );
                   })}
                 </div>
