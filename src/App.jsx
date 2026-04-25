@@ -748,6 +748,36 @@ const GlobalStyles = () => (
       .page { padding: 1rem; }
       .navbar { padding: 0 1rem; gap: 1rem; }
     }
+    /* === PRINT MODE === */
+    @media print {
+      /* Nascondi elementi non utili nella stampa */
+      .navbar, .no-print, .modal-overlay, .nav-btn,
+      button[onclick*="setShowCreateChoice"], .tab-buttons, [role="tab"] { display: none !important; }
+      body, .page { background: white !important; color: black !important; padding: 0 !important; }
+      .card { border: 1px solid #888 !important; box-shadow: none !important; background: white !important; break-inside: avoid; page-break-inside: avoid; }
+      .section-title, .page-title { color: #2a1860 !important; }
+      .page-subtitle { color: #555 !important; }
+      /* Forza colori scuri leggibili su carta */
+      * { color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+      /* Nasconde il pulsante stampa stesso e i bottoni di sintesi */
+      button { display: none !important; }
+      /* Mostra le scritte del tab attive */
+      h1, h2, h3, h4 { page-break-after: avoid; }
+      /* Page break tra tab quando in printingAll mode */
+      [data-print-section] { page-break-before: always; }
+      [data-print-section]:first-of-type { page-break-before: auto; }
+      .print-only { display: none; }
+      .print-only-header {
+        font-family: 'Cinzel Decorative', serif;
+        font-size: 1.6rem;
+        color: #2a1860 !important;
+        border-bottom: 2px solid #2a1860;
+        padding-bottom: 0.4rem;
+        margin: 1.5rem 0 1rem 0;
+        page-break-after: avoid;
+      }
+      .print-only { display: block !important; }
+    }
   `}</style>
 );
 
@@ -1959,6 +1989,7 @@ function SchedaGiocabile({ setPage }) {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [rankUpEvent, setRankUpEvent] = useState(null); // {oldRank, newRank, newHp, newFl, newDif}
   const [showCreateChoice, setShowCreateChoice] = useState(false); // modale scelta tra manuale e dadi
+  const [isPrinting, setIsPrinting] = useState(false); // forza rendering di tutti i tab per stampa PDF
   const avatarRef = useRef(null);
 
   // Scrive in localStorage solo DOPO il primo render (evita di sovrascrivere al mount)
@@ -2016,7 +2047,96 @@ function SchedaGiocabile({ setPage }) {
 
   const exportJSON = () => {
     if (!char) return;
-    const blob = new Blob([JSON.stringify(char, null, 2)], { type: "application/json" });
+    // Raccogli TUTTI i dati derivati per esport completo
+    const cls = CLASSI.find(c => c.nome === char.classeNome) || CLASSI[0];
+    const razza = RAZZE.find(r => r.nome === char.razzaNome) || RAZZE[0];
+    const frammento = FRAMMENTI.find(f => f.nome === char.frammentoNome) || FRAMMENTI[0];
+    const rank = getRankFromPA(char.pa || 0);
+    const rankNext = getNextRankPA(rank);
+    const rankIdx = RANKS.indexOf(rank);
+    // Stat con bonus razziali applicati
+    const stats = {};
+    ["FOR","AGI","RES","INT","PER","CAR"].forEach(s => {
+      let val = cls[s];
+      const bonus = (razza.bonus || "").match(new RegExp(`([+-]\\d+)\\s*${s}`));
+      if (bonus) val += parseInt(bonus[1]);
+      stats[s] = val;
+    });
+    // HP/FL/DIF/VEL al rank corrente
+    let hp_max = Math.round(cls.hp * RANK_MHP[rank]);
+    let fl_max = Math.round(cls.fl * RANK_MFL[rank]);
+    if (typeof razza.mod_hp === "number") {
+      if (razza.mod_hp < 0 && razza.mod_hp > -1) hp_max = Math.ceil(hp_max * (1 + razza.mod_hp));
+      else hp_max += razza.mod_hp;
+    }
+    if (typeof razza.mod_fl === "number" && razza.mod_fl < 0) fl_max = Math.floor(fl_max * (1 + razza.mod_fl));
+    const dif = cls.dif + RANK_BDIF[rank] + (char.armatura || 0) + (typeof razza.mod_dif === "number" ? razza.mod_dif : 0);
+    const vel = cls.vel + (razza.nome === "Nano del Sogno" ? -1 : 0);
+
+    // Skill espanse: combina i PS spesi del char con i dettagli della classe
+    const skillsExpanded = (char.skills || []).map(sk => {
+      const def = cls.skills.find(s => s.nome === sk.nome) || {};
+      const ps = sk.ps || 0;
+      const lv = ps >= 200 ? 5 : ps >= 100 ? 4 : ps >= 50 ? 3 : ps >= 20 ? 2 : 1;
+      return {
+        nome: sk.nome,
+        costo_flusso: def.costo,
+        ps_accumulati: ps,
+        livello_corrente: lv,
+        descrizione: def.desc,
+        progressione: { lv2: def.lv2, lv3: def.lv3, lv4: def.lv4, lv5: def.lv5 },
+      };
+    });
+
+    const exportData = {
+      _formato: "Chaos System Arcadia2099 — Scheda Personaggio",
+      _versione: "v7",
+      _esportato: new Date().toISOString(),
+      // Identità
+      nome: char.nome,
+      background: char.background,
+      avatar: char.avatar ? "(salvato come base64 nel campo avatar)" : null,
+      // Classe / Razza / Frammento
+      classe: { nome: cls.nome, categoria: cls.cat, flavor: cls.flavor, descrizione: cls.desc, dado_vita: cls.dado },
+      razza: { nome: razza.nome, flavor: razza.flavor, bonus: razza.bonus, tratto1: razza.tratto1, tratto2: razza.tratto2, malus: razza.malus },
+      frammento: { nome: frammento.nome, fonte: frammento.fonte, flavor: frammento.flavor, meccanica: frammento.mec },
+      // Progressione
+      progressione: {
+        rank_corrente: rank,
+        titolo_rank: RANK_TITOLI[rank],
+        pa_attuali: char.pa || 0,
+        pa_per_prossimo_rank: rankNext,
+        pa_mancanti: rankNext ? rankNext - (char.pa || 0) : 0,
+        bonus_rank: rankIdx,
+      },
+      // Statistiche e combattimento
+      statistiche: stats,
+      combattimento: {
+        hp_correnti: char.hp_curr ?? hp_max,
+        hp_max,
+        flusso_corrente: char.fl_curr ?? fl_max,
+        flusso_max: fl_max,
+        scintille: char.scintille ?? 3,
+        scintille_max: char.scintille_max ?? 3,
+        difesa: dif,
+        velocita: vel,
+        armatura: char.armatura || 0,
+        condizioni_attive: char.condizioni || [],
+        morti_succ: char.morti_succ || 0,
+        morti_fall: char.morti_fall || 0,
+      },
+      // Equipaggiamento (esistente come campo se compilato)
+      equipaggiamento: char.equipaggiamento || { armi: [], armatura: null, oggetti: [] },
+      // Skill base con livello attuale e progressione
+      skill_base: skillsExpanded,
+      // Note e log
+      note: char.note || "",
+      log_recente: (char.log || []).slice(0, 50),
+      // Dati grezzi (per re-importazione)
+      _raw: char,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${char.nome || "pg"}_arcadia2099.json`;
@@ -2030,9 +2150,11 @@ function SchedaGiocabile({ setPage }) {
     r.onload = ev => {
       try {
         const data = JSON.parse(ev.target.result);
-        data.id = Date.now();
-        setPersonaggi(prev => [...prev, data]);
-        setSelectedId(data.id);
+        // Se è il nuovo formato esteso (v7), estrai _raw; altrimenti usa data tale e quale
+        const charData = data._raw && typeof data._raw === "object" ? data._raw : data;
+        charData.id = Date.now();
+        setPersonaggi(prev => [...prev, charData]);
+        setSelectedId(charData.id);
       } catch { alert("File JSON non valido"); }
     };
     r.readAsText(f);
@@ -2398,8 +2520,10 @@ function SchedaGiocabile({ setPage }) {
       </div>
 
       {/* ═══════ TAB INFO ═══════ */}
-      {tab === "info" && (
-        <>
+      {(tab === "info" || isPrinting) && (
+        <div data-print-section>
+          <div className="print-only print-only-header">▣ Anagrafica · Statistiche · Caratteristiche</div>
+          <>
           <div className="card" style={{ padding:"1.5rem", marginBottom:"1rem" }}>
             <div className="section-title" style={{ marginBottom:"1rem" }}>Statistiche Derivate</div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))", gap:"0.75rem", marginBottom:"1rem" }}>
@@ -2526,15 +2650,18 @@ function SchedaGiocabile({ setPage }) {
               <p style={{ fontSize:"0.85rem" }}>{razza.tratto2}</p>
             </div>
           </div>
-        </>
+        </></div>
       )}
 
       {/* ═══════ TAB COMBATTIMENTO ═══════ */}
-      {tab === "combat" && <CombatTab char={char} cls={cls} stats={stats} hp_max={hp_max} fl_max={fl_max} dif={dif} rank={rank}
+      {(tab === "combat" || isPrinting) && <div data-print-section><div className="print-only print-only-header">⚔ Combattimento</div></div>}
+      {(tab === "combat" || isPrinting) && <CombatTab char={char} cls={cls} stats={stats} hp_max={hp_max} fl_max={fl_max} dif={dif} rank={rank}
         hpChange={hpChange} flChange={flChange} updateChar={updateChar} addLog={addLog} toggleCond={toggleCond} />}
 
       {/* ═══════ TAB SKILL ═══════ */}
-      {tab === "skills" && (
+      {(tab === "skills" || isPrinting) && (
+        <div data-print-section>
+        <div className="print-only print-only-header">⚡ Skill · Equipaggiamento</div>
         <div className="card" style={{ padding:"1.5rem" }}>
           <div className="section-title" style={{ marginBottom:"1rem" }}>Skill del Personaggio</div>
           {(char.skills || []).map((sk, i) => {
@@ -2593,13 +2720,17 @@ function SchedaGiocabile({ setPage }) {
             <strong style={{ color:"var(--gold)" }}>Soglie PS:</strong> Lv2=20 · Lv3=70 · Lv4=170 · Lv5=370 (Forma Finale)
           </div>
         </div>
+        </div>
       )}
 
       {/* ═══════ TAB PROGRESSIONE ═══════ */}
-      {tab === "progress" && <ProgressTab char={char} rank={rank} rankNext={rankNext} cls={cls} razza={razza} updateChar={updateChar} addLog={addLog} onRankUp={setRankUpEvent} />}
+      {(tab === "progress" || isPrinting) && <div data-print-section><div className="print-only print-only-header">★ Progressione · Rank · PA</div></div>}
+      {(tab === "progress" || isPrinting) && <ProgressTab char={char} rank={rank} rankNext={rankNext} cls={cls} razza={razza} updateChar={updateChar} addLog={addLog} onRankUp={setRankUpEvent} />}
 
       {/* ═══════ TAB LOG ═══════ */}
-      {tab === "log" && (
+      {(tab === "log" || isPrinting) && (
+        <div data-print-section>
+        <div className="print-only print-only-header">📜 Log delle azioni</div>
         <div className="card" style={{ padding:"1.5rem" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem" }}>
             <div className="section-title">Registro Sessione</div>
@@ -2627,13 +2758,19 @@ function SchedaGiocabile({ setPage }) {
             })}
           </div>
         </div>
+        </div>
       )}
-
-      {/* AZIONI GLOBALI */}
       <div className="card no-print" style={{ padding:"1rem", marginTop:"1rem" }}>
         <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
           <button className="btn btn-gold btn-sm" onClick={exportJSON}>💾 Salva JSON</button>
-          <button className="btn btn-primary btn-sm" onClick={() => window.print()}>📄 Stampa / Salva PDF</button>
+          <button className="btn btn-primary btn-sm" onClick={() => {
+            setIsPrinting(true);
+            // Aspetta che React renderizzi tutti i tab prima di chiamare print()
+            setTimeout(() => {
+              window.print();
+              setIsPrinting(false);
+            }, 250);
+          }}>📄 Stampa / Salva PDF</button>
           <label className="btn btn-outline btn-sm" style={{ cursor:"pointer" }}>
             📂 Importa JSON
             <input type="file" accept=".json" onChange={importJSON} style={{ display:"none" }} />
