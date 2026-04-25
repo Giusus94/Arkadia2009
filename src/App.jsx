@@ -1045,7 +1045,7 @@ function HomePage({ setPage }) {
           <div id="hero-title-fallback" style={{ display:"none" }}>
             <div className="hero-title">ARCADIA 2099</div>
           </div>
-          <div className="hero-sub" style={{ marginTop:"0.5rem" }}>Chaos System · Sistema LUCID d20</div>
+          <div className="hero-sub" style={{ marginTop:"0.5rem" }}>Chaos System</div>
           <p style={{ color:"var(--text-dim)", maxWidth:560, margin:"0 auto 2.5rem", lineHeight:1.7, fontSize:"0.95rem" }}>
             Nel 2099, i grandi Domini che governavano Arkadium sono caduti. Al loro posto operano otto Fazioni che si
             contendono ogni zona di territorio. Il Flusso è instabile. I Frammenti del Creatore dormono nei viventi —
