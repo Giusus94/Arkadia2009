@@ -57,7 +57,7 @@ const CLASSI = [
    skills:[{nome:"Colpo Selvaggio",costo:"0",desc:"Attacco FOR. Danno 1d12+3. Manca di 1-3: 1d6 da pressione. No Schivata stessa turno.",lv2:"2d10+3",lv3:"Pressione sale a 1d8",lv4:"2d12+3. Critico: vola 3m (Prono)",lv5:"FINALE: colpisce sempre, 3d10+3"},
     {nome:"Frenesia",costo:"3",desc:"Azione Bonus. Per 3t: +3 danni, no Skill >2 Flusso, immune Spaventato. Poi: Esausto 2t.",lv2:"Dura 4t, Esausto 1t",lv3:"+5 danni, immune anche Stordito",lv4:"Esausto scompare",lv5:"FINALE: attiva automaticamente sotto 30% HP, costo 0"},
     {nome:"Grido di Guerra",costo:"0",desc:"A.Bonus. Alleati entro 6m: +1 danni 2t. Tu: +2. 1/scontro.",lv2:"Alleati +2",lv3:"+1 Difesa per tutti 2t",lv4:"Utilizzabile 2/scontro",lv5:"FINALE: automatico a inizio scontro, dura 3t"}]},
-  {cat:1,pos:3,nome:"Paladino del Sogno",flavor:"Forza fisica e Flusso curativo",icon:"✨",FOR:13,AGI:10,RES:14,INT:10,PER:12,CAR:11,hp:67,fl:32,dif:10,vel:5,dado:"1d10",
+  {cat:1,pos:3,nome:"Paladino Arkadiano",flavor:"Forza fisica e Flusso curativo",icon:"✨",FOR:13,AGI:10,RES:14,INT:10,PER:12,CAR:11,hp:67,fl:32,dif:10,vel:5,dado:"1d10",
    desc:"Il personaggio eccelle sia nel combattimento in prima lineaento che nel supporto. La classe più equilibrata del sistema. Nessun primato assoluto, nessun punto critico di debolezza. Il sacrificio dell'Imposizione delle Mani è una scelta tattica costante — il suo valore aumenta proporzionalmente alla situazione.",
    skills:[{nome:"Colpo Sacro",costo:"2",desc:"Attacco FOR. Danno 1d8+1 + 1d6 sacro (ignora armatura). Vs non-morti/corrotti: sacro x2.",lv2:"2d6+1 fisico",lv3:"Sacro 2d6 + Benedizione alleato",lv4:"2d8+1, sacro 2d8",lv5:"FINALE: sacro guarisce il Paladino del 50%"},
     {nome:"Aura Protettiva",costo:"3",desc:"A.Bonus. Alleati entro 4m: +1 Difesa e resist. veleni 3t.",lv2:"Portata 6m, costo 2",lv3:"+2 Difesa + resist. Spaventato",lv4:"Dura 5t",lv5:"FINALE: sempre attiva, costo 1 a inizio scontro"},
@@ -72,7 +72,7 @@ const CLASSI = [
    skills:[{nome:"Lama Avvelenata",costo:"2",desc:"Attacco AGI. Danno 1d6+3 + Veleno (1d4/turno 3t, RES DC 13).",lv2:"Veleno 4t, DC 14",lv3:"Veleno applica –1 a tutti i tiri",lv4:"2d6+3, veleno 2 stack",lv5:"FINALE: veleno permanente per lo scontro"},
     {nome:"Passo d'Ombra",costo:"3",desc:"A.Bonus. Stealth assoluto. Prossimo attacco da stealth = critico automatico (x2). 1/scontro.",lv2:"2/scontro",lv3:"Critico da stealth = x2.5",lv4:"Costo 2, 3/scontro",lv5:"FINALE: gratuito (0 Flusso), illimitato"},
     {nome:"Esecuzione",costo:"4",desc:"Solo da stealth. Colpisce sempre: 3d6+3, ignora tutta l'armatura. Bersaglio >75% HP: x1.5.",lv2:"4d6+3",lv3:"Soglia sale a >50% HP",lv4:"Se uccide: rientra in stealth gratis",lv5:"FINALE: usabile senza stealth (danno /2). Da stealth: 5d6+3"}]},
-  {cat:2,pos:2,nome:"Ranger del Sogno",flavor:"Efficace a distanza e in mischia",icon:"🏹",FOR:12,AGI:15,RES:11,INT:10,PER:13,CAR:8,hp:50,fl:26,dif:12,vel:7,dado:"1d8",
+  {cat:2,pos:2,nome:"Ranger del Flusso",flavor:"Efficace a distanza e in mischia",icon:"🏹",FOR:12,AGI:15,RES:11,INT:10,PER:13,CAR:8,hp:50,fl:26,dif:12,vel:7,dado:"1d8",
    desc:"Risulta efficace sia a distanza che in mischia. La classe con la curva di efficacia più stabile del sistema. Nessuna debolezza critica, nessun picco di potenza estremo. Adatta a qualsiasi composizione di gruppo senza richiedere gestione di meccaniche ad alto rischio. 29 CHAOS SYSTEM Arcadia2099 Volume Unico · v7.0",
    skills:[{nome:"Freccia Perforante",costo:"2",desc:"Attacco AGI a distanza. Danno 1d8+2. Ignora 50% bonus armatura.",lv2:"2d6+2",lv3:"Ignora 100% armatura",lv4:"Portata doppia, 2d8+2",lv5:"FINALE: colpisce 2 bersagli in linea retta"},
     {nome:"Colpo Doppio",costo:"3",desc:"2 attacchi: 1d20+2, danno 1d6+2. Il 2° ha –2 al tiro.",lv2:"2° senza penalità",lv3:"Colpo Triplo (3° ha –1)",lv4:"Vantaggio su tutti e 3 se marcato",lv5:"FINALE: Colpo Quadruplo. Critico aggiunge attacco bonus"},
@@ -92,7 +92,7 @@ const CLASSI = [
    skills:[{nome:"Nova Oscura",costo:"5",desc:"Area 4m entro 20m. AGI DC 13. Fallimento: 3d6+3. Successo: metà.",lv2:"4d6+3",lv3:"Raggio 6m, DC 14",lv4:"Tipo danno a scelta",lv5:"FINALE: colpisce TUTTI i nemici visibili. No tiro. 4d8+3"},
     {nome:"Sigillo del Silenzio",costo:"3",desc:"INT vs RES DC 12. Pieno: no Skill 2t. Parziale: 1t.",lv2:"Pieno 3t, Parziale 2t",lv3:"Il Sigillo si trasferisce se il bersaglio muore",lv4:"Costo 2",lv5:"FINALE: area 5m (tutti i nemici), 1t. Costo 6"},
     {nome:"Scudo Arcano",costo:"3",desc:"Reazione. Assorbe 1d8+3 danni. Se assorbe tutto: nessuna condizione.",lv2:"2d8+3",lv3:"Attivabile su alleato entro 6m",lv4:"3d6+3. Se assorbe tutto: 50% riflesso",lv5:"FINALE: sempre attivo (passivo), assorbe 1d6+3 da qualsiasi fonte"}]},
-  {cat:3,pos:2,nome:"Evocatore di Sogni",flavor:"Combatte tramite creature create dal Flusso",icon:"🌀",FOR:8,AGI:10,RES:10,INT:15,PER:14,CAR:9,hp:53,fl:52,dif:10,vel:5,dado:"1d6",
+  {cat:3,pos:2,nome:"Evocatore del Flusso",flavor:"Combatte tramite creature create dal Flusso",icon:"🌀",FOR:8,AGI:10,RES:10,INT:15,PER:14,CAR:9,hp:53,fl:52,dif:10,vel:5,dado:"1d6",
    desc:"Genera creature dal Flusso che agiscono al suo posto. Una classe a progressione lenta e potenza crescente. Al Rank F le Sentinelle hanno un ruolo di supporto. Al Rank S, con tre evocazioni attive e Rinforzo Mistico, il potenziale offensivo in area supera la maggior parte delle classi DPS dirette. 37 CHAOS SYSTEM Arcadia2099 Volume Unico · v7.0",
    skills:[{nome:"Evoca Sentinella",costo:"4",desc:"Sentinella: HP 30, Attacco 1d6+2, Difesa 12. Dura 3t. Max 1.",lv2:"HP 50, Attacco 2d6+2",lv3:"Max 2 attive",lv4:"HP 70, si interpone tra te e attacchi",lv5:"FINALE: nessuna durata. Max 3 attive"},
     {nome:"Esplosione di Evocazione",costo:"5",desc:"Ogni creatura evocata esplode area 3m: 2d6+2 (AGI DC 12 per metà). Svanisce.",lv2:"3d6+2",lv3:"Raggio 5m",lv4:"Creatura sostituita gratis dopo esplosione",lv5:"FINALE: scegli se svanisce o sopravvive. 4d6+2"},
@@ -107,7 +107,7 @@ const CLASSI = [
    skills:[{nome:"Doppio Illusorio",costo:"3",desc:"A.Bonus. 1 copia. Nemici: INT DC 13 per capire il vero bersaglio. Svanisce al 1° colpo.",lv2:"2 copie",lv3:"Copie si muovono autonomamente, DC 14",lv4:"Copie usano Skill base",lv5:"FINALE: copie hanno 15 HP ciascuna. Max 3 attive"},
     {nome:"Terrore Reale",costo:"4",desc:"INT vs INT DC 13. Pieno: Spaventato 2t + Svantaggio su tutto. Parziale: Spaventato 1t.",lv2:"Pieno 3t",lv3:"Area 5m, tiro separato per ciascuno",lv4:"DC 15, chi fallisce anche Paralizzato 1t",lv5:"FINALE: istantaneo. Tutti i nemici visibili: Spaventati 2t"},
     {nome:"Labirinto Illusorio",costo:"6",desc:"Bersaglio salta turno intero (INT vs INT DC 14). Fallisce su immuni.",lv2:"Costo 5",lv3:"2 bersagli",lv4:"Bersaglio subisce 2d6 psichici all'uscita",lv5:"FINALE: dura 2 turni. Il bersaglio non ricorda nulla"}]},
-  {cat:4,pos:1,nome:"Guardiano del Sogno",flavor:"HP massimi del gioco — il muro indistruttibile",icon:"🛡️",FOR:11,AGI:8,RES:16,INT:10,PER:13,CAR:8,hp:79,fl:28,dif:9,vel:4,dado:"1d12",
+  {cat:4,pos:1,nome:"Guardiano Arkadiano",flavor:"HP massimi del gioco — il muro indistruttibile",icon:"🛡️",FOR:11,AGI:8,RES:16,INT:10,PER:13,CAR:8,hp:79,fl:28,dif:9,vel:4,dado:"1d12",
    desc:"Punti Ferita più elevati del sistema. Il suo ruolo principale è proteggere gli alleati. 91 HP al Rank C — il più resistente del gioco. Il DPR è il più basso, ma la sopravvivenza estrema e lo Scudo dell'Anima rendono il gruppo quasi invincibile se giocato bene.",
    skills:[{nome:"Barriera Cristallina",costo:"3",desc:"Scudo su sé o alleato entro 8m. Assorbe RES×4 (base 64) HP. Dura fino a fine scontro.",lv2:"RES×5 (base 80)",lv3:"20% danni assorbiti riflessi all'attaccante",lv4:"2 scudi simultanei su bersagli diversi",lv5:"FINALE: si rigenera di 10 HP ogni round"},
     {nome:"Aura di Guarigione",costo:"3",desc:"Alleati entro 6m (non sé): 1d8+1 HP. Se sotto 50%: cura doppia.",lv2:"2d6+1, soglia 60%",lv3:"Rimuove una condizione a scelta",lv4:"Costo 2, cura anche sé stesso",lv5:"FINALE: persistente — 1d6+1 a inizio ogni suo turno a tutti entro 6m"},
@@ -117,7 +117,7 @@ const CLASSI = [
    skills:[{nome:"Sfida del Campione",costo:"0+✦",desc:"A.Bonus. Bersaglio: Svantaggio vs altri 2t. Tu: +1 Difesa vs lui.",lv2:"Costo ✦ rimosso, costo 1 Flusso",lv3:"2 bersagli, penalità = impossibile attaccare altri",lv4:"+2 Difesa, dura 3t",lv5:"FINALE: attiva su TUTTI i nemici all'inizio scontro (passiva), costo 2"},
     {nome:"Scossa Sismica",costo:"4",desc:"Colpisci il terreno. Nemici entro 3m: RES DC 13. Fallimento: Proni + 1d6.",lv2:"2d6",lv3:"Raggio 5m, Prono → Immobilizzato 1t",lv4:"DC 15",lv5:"FINALE: crea fessura 3m. Chi attraversa: Prono automaticamente"},
     {nome:"Fortezza",costo:"3",desc:"Reazione. Dimezza un singolo attacco. Se danno dimezzato = 0: recuperi 3 HP.",lv2:"Danno 0 → recuperi 6 HP",lv3:"Costo 2",lv4:"Dimezza tutti gli attacchi 1 turno intero",lv5:"FINALE: passiva — dimezza ogni attacco >20 danni"}]},
-  {cat:4,pos:3,nome:"Monaco del Sogno",flavor:"Resistenza e velocità in un corpo solo",icon:"☯️",FOR:12,AGI:14,RES:13,INT:8,PER:11,CAR:8,hp:62,fl:20,dif:12,vel:7,dado:"1d10",
+  {cat:4,pos:3,nome:"Monaco del Flusso",flavor:"Resistenza e velocità in un corpo solo",icon:"☯️",FOR:12,AGI:14,RES:13,INT:8,PER:11,CAR:8,hp:62,fl:20,dif:12,vel:7,dado:"1d10",
    desc:"Il personaggio risulta più difficile da contenere rispetto ai tank tradizionali. Il tank che non si ferma. Combina resistenza fisica con la mobilita' dell'Assassino. Eccellente nei combattimenti su più fronti — il Vortice in forma finale è una delle Skill più devastanti del gioco in spazi affollati.",
    skills:[{nome:"Pugno del Fulmine",costo:"2",desc:"Attacco FOR. Danno 1d8+1. Se critico: bersaglio Stordito 1t.",lv2:"2d6+1",lv3:"Stordito anche senza critico se superi Difesa di 5+",lv4:"2d8+1",lv5:"FINALE: ogni Pugno accumula contatore (max 3). Al 3°: esplosione 3d8 area 3m"},
     {nome:"Vortice del Monaco",costo:"4",desc:"Muoviti 4m e attacca ogni nemico attraversato: 1d6+1. No attacchi di opportunità.",lv2:"6m, 2d4+1",lv3:"Ogni bersaglio: Rallentato 1t",lv4:"Percorso x2 (attacchi doppi)",lv5:"FINALE: nessun limite distanza. 2d6+1 per bersaglio. Ogni colpito: Prono"},
@@ -127,12 +127,12 @@ const CLASSI = [
    skills:[{nome:"Sacrificio di Sangue",costo:"0*",desc:"*Costa HP. Spendi X HP (min 5): infliggi X×1.5 danni puri. Sotto 20% HP: X×2.5.",lv2:"Base X×2. Sotto 20%: X×3",lv3:"Può colpire area 3m",lv4:"Base X×2.5. Sotto 20%: X×4",lv5:"FINALE: costo HP /2. Sotto 20%: X×5"},
     {nome:"Rinascita nel Sangue",costo:"0 (1/scontro)",desc:"Reazione automatica a 0 HP. Sopravvivi con 1 HP. Nemici entro 4m: 2d6 (RES DC 13 Storditi).",lv2:"3d6",lv3:"Raggio 6m",lv4:"2/scontro",lv5:"FINALE: recuperi 20% HP massimi. Danno nemici: 4d8"},
     {nome:"Flagello del Moribondo",costo:"5",desc:"3 attacchi FOR: 1d10+2. Sotto 20% HP: ogni colpo +1d6.",lv2:"4 attacchi, 1d12+2",lv3:"Sotto 20%: +2d6",lv4:"Costo 4",lv5:"FINALE: 5 attacchi, 2d8+2. Sotto 20%: costo 0"}]},
-  {cat:5,pos:1,nome:"Domatore di Anime",flavor:"La forza cresce con ogni mostro domato",icon:"🐉",FOR:10,AGI:11,RES:11,INT:12,PER:15,CAR:7,hp:49,fl:36,dif:10,vel:5,dado:"1d8",
+  {cat:5,pos:1,nome:"Domatore",flavor:"La forza cresce con ogni mostro domato",icon:"🐉",FOR:10,AGI:11,RES:11,INT:12,PER:15,CAR:7,hp:49,fl:36,dif:10,vel:5,dado:"1d8",
    desc:"Quanto più compagni possiede, più è efficace. Progressione asimmetrica: prestazioni contenute ai Rank bassi, potenziale moltiplicativo elevato ai Rank alti. Ogni creatura domata aggiunge un moltiplicatore permanente alla forza del gruppo. Il numero massimo di compagni attivi è pari al modificatore PER (minimo 1, massimo 5).",
    skills:[{nome:"Doma",costo:"0",desc:"Su bersaglio ≤25% HP. PER vs DC (8+Rank mostro). Pieno: permanente. Parziale: 1 scontro.",lv2:"Tentabile fino a 35% HP",lv3:"Tentabile fino a 45%, Parziale → 1 sessione",lv4:"Tentabile su qualsiasi bersaglio (DC +8)",lv5:"FINALE: istantanea (A.Bonus)"},
     {nome:"Ruggito del Branco",costo:"4",desc:"Tutti i compagni attivi entro 20m attaccano stesso bersaglio. Ogni attacco: +1d4 cumulativo.",lv2:"+1d6 cumulativo",lv3:"Puoi designare bersagli diversi",lv4:"Costo 3",lv5:"FINALE: automatico ogni tuo turno, costo 2"},
     {nome:"Legame Empatico",costo:"2",desc:"A.Bonus. Vedi attraverso gli occhi di un compagno 1t. Il compagno: Vantaggio su tutto 2t.",lv2:"Comunicazione bidirezionale",lv3:"Vantaggio dura 3t, controllo diretto",lv4:"Condividi le tue Skill al compagno",lv5:"FINALE: permanente su tutti i compagni attivi"}]},
-  {cat:5,pos:2,nome:"Veggente del Sogno",flavor:"Anticipa i pericoli e mantiene il gruppo in vita",icon:"🔮",FOR:8,AGI:10,RES:10,INT:13,PER:16,CAR:9,hp:43,fl:44,dif:10,vel:5,dado:"1d6",
+  {cat:5,pos:2,nome:"Veggente",flavor:"Anticipa i pericoli e mantiene il gruppo in vita",icon:"🔮",FOR:8,AGI:10,RES:10,INT:13,PER:16,CAR:9,hp:43,fl:44,dif:10,vel:5,dado:"1d6",
    desc:"È il ruolo di supporto principale del sistema. La classe di supporto più pura. HP bassi (43 al Rank F) — deve stare protetto. In cambio, mantiene il gruppo in piedi in situazioni che nessuna altra classe potrebbe gestire. In forma finale, trasforma l'intero party in qualcosa di superiore.",
    skills:[{nome:"Previsione del Colpo",costo:"2",desc:"Inizio round: designa 1 alleato. Se attaccato quel turno: +3 Difesa contro quell'attacco.",lv2:"2 alleati",lv3:"+4 Difesa",lv4:"Copre tutti gli attacchi del turno",lv5:"FINALE: si applica a tutti gli alleati, costo 0"},
     {nome:"Tocco Curativo Avanzato",costo:"4",desc:"Cura alleato entro 6m di 2d8+2 HP. Se già a piena salute: Scudo pari alla cura.",lv2:"3d6+2",lv3:"Rimuove una condizione",lv4:"Costo 3, portata 10m",lv5:"FINALE: cura tutti gli alleati visibili, 2d8+2 a ciascuno"},
@@ -142,7 +142,7 @@ const CLASSI = [
    skills:[{nome:"Tracciamento Arcano",costo:"1",desc:"A.Bonus. Marca bersaglio. Per tutta la sessione: posizione entro 100m. Vantaggio per inseguire.",lv2:"2 bersagli simultanei",lv3:"Portata 1km, stato approssimativo noto",lv4:"Marca permanente (tutta la campagna)",lv5:"FINALE: passivo — ogni creatura che ti ha visto è automaticamente marcata"},
     {nome:"Colpo di Arresto",costo:"3",desc:"Attacco PER. Danno 1d8+2. Se colpisce: Rallentato 2t (vel /2, –1 azione).",lv2:"Rallentato più severo: vel /3",lv3:"Aggiunge Sanguinante",lv4:"2d6+2, cono",lv5:"FINALE: su bersaglio marcato → Immobilizzato invece di Rallentato"},
     {nome:"Caccia Finale",costo:"5",desc:"Solo su bersaglio marcato. Danno 3d8+2, ignora 50% armatura. Sotto 40% HP: x1.5.",lv2:"4d8+2",lv3:"Ignora 100% armatura",lv4:"Soglia sale a 50% HP",lv5:"FINALE: se uccide → +3 Scintille e Tracciamento si azzera"}]},
-  {cat:5,pos:4,nome:"Cercatore del Sogno",flavor:"Conosce il terreno prima ancora di entrarci",icon:"🗺️",FOR:10,AGI:12,RES:11,INT:11,PER:15,CAR:7,hp:56,fl:34,dif:11,vel:6,dado:"1d8",
+  {cat:5,pos:4,nome:"Cercatore",flavor:"Conosce il terreno prima ancora di entrarci",icon:"🗺️",FOR:10,AGI:12,RES:11,INT:11,PER:15,CAR:7,hp:56,fl:34,dif:11,vel:6,dado:"1d8",
    desc:"Quando il gruppo attraversa un'area, il personaggio ne conosce già i pericoli principali. La classe con più vantaggi fuori dal combattimento. In esplorazione, nessuno lo batte. In combattimento, la conoscenza del terreno si traduce in danno e controllo precisi.",
    skills:[{nome:"Lettura del Campo",costo:"1",desc:"A.Bonus. Rileva trappole entro 10m, creature invisibili, uscite, coperture. Alleati: +1 Init. prossimo round.",lv2:"Portata 15m, +2 Iniziativa",lv3:"Rivela Skill già usate dai nemici",lv4:"Auto-aggiornamento ogni round",lv5:"FINALE: sempre attiva (passiva)"},
     {nome:"Colpo del Conoscitore",costo:"2",desc:"Attacco PER. Danno 1d8+2. Conosce la debolezza: x1.5 + applica debolezza.",lv2:"2d6+2",lv3:"x2 invece di x1.5",lv4:"Scopre debolezza al momento del colpo",lv5:"FINALE: ignora sempre tutta l'armatura"},
@@ -152,7 +152,7 @@ const CLASSI = [
    skills:[{nome:"Lama Corrotta",costo:"3",desc:"Attacco FOR. 1d8+1 + 1d6 oscuro (ignora armatura). Corruzione: prossima Skill nemica +2 Flusso.",lv2:"2d6+1 fisico, 2d6 oscuro",lv3:"Corruzione max 2 stack",lv4:"2d8+1, oscuro 3d6",lv5:"FINALE: Corruzione senza limite stack, si applica a tutti i colpiti"},
     {nome:"Aura di Tenebra",costo:"4",desc:"A.Bonus. Aura 3m 2t: nemici –2 a tutti i tiri, alleati +1 danni oscuri. Immune.",lv2:"Raggio 5m",lv3:"Malus –3",lv4:"Dura 3t",lv5:"FINALE: sempre attiva, costo 2 a inizio scontro"},
     {nome:"Drenaggio Oscuro",costo:"3",desc:"Attacco INT. Drena 1d8+1 Flusso (o HP se esaurito). Recuperi metà del drenato.",lv2:"2d6+1",lv3:"Recuperi 100% del drenato",lv4:"Può drenare Scintille (1 ✦ = 5 Flusso)",lv5:"FINALE: A.Bonus invece di Azione, costo 2"}]},
-  {cat:6,pos:2,nome:"Bardo del Sogno",flavor:"Trasforma il gruppo in qualcosa di superiore",icon:"🎵",FOR:10,AGI:12,RES:10,INT:12,PER:10,CAR:16,hp:51,fl:38,dif:11,vel:6,dado:"1d8",
+  {cat:6,pos:2,nome:"Bardo",flavor:"Trasforma il gruppo in qualcosa di superiore",icon:"🎵",FOR:10,AGI:12,RES:10,INT:12,PER:10,CAR:16,hp:51,fl:38,dif:11,vel:6,dado:"1d8",
    desc:"Le sue Skill potenziano l'intero gruppo, trasformando la squadra in qualcosa di superiore alla somma delle sue singole parti. Prestazioni individuali contenute, impatto di gruppo elevato. Il Canto di Battaglia in Forma Finale combinato con la Ballata Ispiratrice sul principale attaccante produce il DPR aggregato più alto ottenibile nel sistema.",
    skills:[{nome:"Canto di Battaglia",costo:"3",desc:"Azione. Alleati entro 8m: +1d4 danni 2t. Tu non attacchi mentre canti.",lv2:"+1d6",lv3:"Raggio 12m",lv4:"+1d8, costo 2",lv5:"FINALE: sempre attivo (passivo), costo 2 a inizio scontro, +1d6 permanente"},
     {nome:"Nota Dissonante",costo:"2",desc:"CAR vs INT DC 12. Pieno: Svantaggio su tutto 1t + 1d6 sonici. Parziale: Svantaggio.",lv2:"Pieno 2t + 2d6",lv3:"Area 4m, tiro separato per ciascuno",lv4:"DC 14 + Rallentato",lv5:"FINALE: no tiro difensivo. Tutti nemici entro 6m subiscono automaticamente"},
@@ -1918,8 +1918,32 @@ function SchedaGiocabile() {
       const s = localStorage.getItem("arcadia_schede_v1");
       const parsed = s ? JSON.parse(s) : [];
       if (!Array.isArray(parsed)) return [];
-      console.log("[Scheda] Caricate", parsed.length, "schede dal localStorage");
-      return parsed;
+      // Migrazione nomi classi vecchi → manuale v7
+      const RENAME_MAP = {
+        "Paladino del Sogno": "Paladino Arkadiano",
+        "Ranger del Sogno": "Ranger del Flusso",
+        "Evocatore di Sogni": "Evocatore del Flusso",
+        "Guardiano del Sogno": "Guardiano Arkadiano",
+        "Monaco del Sogno": "Monaco del Flusso",
+        "Domatore di Anime": "Domatore",
+        "Veggente del Sogno": "Veggente",
+        "Cercatore del Sogno": "Cercatore",
+        "Bardo del Sogno": "Bardo",
+      };
+      let migrated = 0;
+      const fixed = parsed.map(p => {
+        if (p.classeNome && RENAME_MAP[p.classeNome]) {
+          migrated++;
+          return { ...p, classeNome: RENAME_MAP[p.classeNome] };
+        }
+        return p;
+      });
+      if (migrated > 0) {
+        localStorage.setItem("arcadia_schede_v1", JSON.stringify(fixed));
+        console.log(`[Scheda] Migrate ${migrated} schede ai nuovi nomi classe v7`);
+      }
+      console.log("[Scheda] Caricate", fixed.length, "schede dal localStorage");
+      return fixed;
     }
     catch { return []; }
   });
@@ -3003,12 +3027,6 @@ function CompendioPage() {
               {tipiUnici.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
-          {sezione === "arsenale" && (
-            <select className="input-field" value={armiFilter} onChange={e => setArmiFilter(e.target.value)} style={{ minWidth:180 }}>
-              <option value="">Tutte le categorie</option>
-              {sezioniArmi.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          )}
         </div>
       </div>
 
@@ -3019,7 +3037,7 @@ function CompendioPage() {
             ["", `Tutte · ${ARSENALE.length}`, "var(--purple)"],
             ...sezioniArmi.map(s => [
               s,
-              `${s.replace("Armi ", "")} · ${ARSENALE.filter(a => a.sezione === s).length}`,
+              `${s.replace("Armi al ", "").replace("Armi a ", "").replace("Armi ", "")} · ${ARSENALE.filter(a => a.sezione === s).length}`,
               s === "Armi Bianche" ? "#c9c9c9" :
               s === "Armi al Plasma" ? "#ff9c4d" :
               s === "Armi a Raggio" ? "#4dd9ff" :
