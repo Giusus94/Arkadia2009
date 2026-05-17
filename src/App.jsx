@@ -1082,7 +1082,7 @@ function HomePage({ setPage }) {
             destinati a risvegliarsi al Rank S.
           </p>
           <div style={{ display:"flex", gap:"0.75rem", justifyContent:"center", flexWrap:"wrap" }}>
-            <button className="btn btn-gold"    onClick={() => setPage("generator")}>🎲 Crea Personaggio</button>
+            <button className="btn btn-gold"    onClick={() => setPage("scheda")}>🎲 Crea Personaggio</button>
             <button className="btn btn-primary" onClick={() => setPage("wiki")}>📖 Esplora Wiki</button>
             <button className="btn btn-outline" onClick={() => setPage("compendio")}>📚 Compendio</button>
             <button className="btn btn-outline" onClick={() => setPage("tracker")}>📊 Tracker</button>
@@ -1480,12 +1480,187 @@ function assegnaSchedeOrfane(username) {
 // ═══════════════════════════════════════════════════════
 // LOGIN / REGISTRAZIONE
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// AVATAR PICKER — Generato, locale, URL (Pinterest incluso)
+// ═══════════════════════════════════════════════════════
+const STILI_DICEBEAR = [
+  { id:"avataaars-neutral", label:"Avataaars" },
+  { id:"adventurer",        label:"Adventurer" },
+  { id:"bottts",            label:"Bottts" },
+  { id:"pixel-art",         label:"Pixel" },
+  { id:"lorelei",           label:"Lorelei" },
+  { id:"micah",             label:"Micah" },
+  { id:"thumbs",            label:"Thumbs" },
+  { id:"shapes",            label:"Shapes" },
+];
+
+function urlDicebear(stileId, seedVal) {
+  const seed = encodeURIComponent(seedVal || "arkadia");
+  return `https://api.dicebear.com/9.x/${stileId}/svg?seed=${seed}`;
+}
+
+function AvatarPicker({ value, seed, fallbackLabel = "?", onChange }) {
+  const [tab,      setTab]      = useState("genera"); // genera | locale | url | pinterest
+  const [urlInput, setUrlInput] = useState("");
+  const [pinInput, setPinInput] = useState("");
+  const [pinErrore,setPinErrore]= useState("");
+
+  function handleFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith("image/")) { alert("Il file selezionato non è un'immagine."); return; }
+    if (f.size > 2 * 1024 * 1024) { alert("Immagine troppo grande: il limite è 2 MB."); return; }
+    const r = new FileReader();
+    r.onload = ev => onChange(ev.target.result);
+    r.readAsDataURL(f);
+    e.target.value = "";
+  }
+
+  function applicaUrl() {
+    const s = urlInput.trim();
+    if (!s) return;
+    onChange(s);
+  }
+
+  function applicaPinterest() {
+    setPinErrore("");
+    const s = pinInput.trim();
+    if (!s) return;
+    // Accetta sia link diretti i.pinimg.com sia URL del pin: in entrambi i casi
+    // l'utente deve aver copiato l'URL dell'immagine. Se non punta a pinimg.com
+    // o ad altri host immagine comuni, segnaliamo l'errore con suggerimento.
+    if (/^https?:\/\/(i\.pinimg\.com|pinimg\.com|.*pinterest\..*\/.*\.(jpg|jpeg|png|webp|gif))/i.test(s)) {
+      onChange(s); return;
+    }
+    if (/\.(jpg|jpeg|png|webp|gif|svg)(\?|$)/i.test(s)) { onChange(s); return; }
+    setPinErrore("Questo non sembra l'URL diretto dell'immagine. Su Pinterest fai clic destro sul pin e scegli \"Copia indirizzo immagine\" (deve iniziare con i.pinimg.com).");
+  }
+
+  const semeEffettivo = seed || fallbackLabel || "arkadia";
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:"0.4rem", marginBottom:"1rem", background:"var(--panel2)", borderRadius:7, padding:"0.25rem", border:"1px solid var(--border)", flexWrap:"wrap" }}>
+        {[
+          {id:"genera",   label:"✦ Generato"},
+          {id:"locale",   label:"📁 File"},
+          {id:"url",      label:"🔗 URL"},
+          {id:"pinterest",label:"📌 Pinterest"},
+        ].map(t => (
+          <button key={t.id} type="button" onClick={() => setTab(t.id)} style={{
+            flex:"1 1 80px", padding:"0.45rem 0.3rem", borderRadius:5, border:"none", cursor:"pointer",
+            background: tab === t.id ? "var(--purple)" : "transparent",
+            color: tab === t.id ? "white" : "var(--text-dim)",
+            fontFamily:"'Cinzel',serif", fontWeight:600, fontSize:"0.74rem",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Anteprima corrente */}
+      <div style={{ display:"flex", alignItems:"center", gap:"1rem", marginBottom:"1rem", padding:"0.7rem", background:"var(--panel2)", borderRadius:7, border:"1px solid var(--border)" }}>
+        <div style={{
+          width:64, height:64, borderRadius:"50%", flexShrink:0,
+          background: value ? `url(${value}) center/cover` : "linear-gradient(135deg,#8c6eff,var(--purple))",
+          border:"2px solid var(--border-bright)",
+          display: value ? "block" : "flex",
+          alignItems:"center", justifyContent:"center",
+          fontFamily:"'Cinzel',serif", fontWeight:700, color:"white", fontSize:"1.2rem",
+        }}>
+          {!value && String(fallbackLabel || "?").slice(0,2).toUpperCase()}
+        </div>
+        <div style={{ flex:1, fontSize:"0.78rem", color:"var(--text-dim)", lineHeight:1.45 }}>
+          {value ? "Anteprima dell'avatar selezionato." : "Nessuna immagine: verrà mostrato un avatar con le iniziali su sfondo a gradiente."}
+        </div>
+        {value && (
+          <button type="button" className="btn btn-outline btn-xs" onClick={() => onChange(null)}>Rimuovi</button>
+        )}
+      </div>
+
+      {tab === "genera" && (
+        <div>
+          <p style={{ fontSize:"0.74rem", color:"var(--text-dim)", marginBottom:"0.7rem", lineHeight:1.5 }}>
+            Scegli uno stile: l'avatar viene generato in modo deterministico a partire dal tuo nome utente e ospitato dal servizio pubblico DiceBear.
+          </p>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(80px,1fr))", gap:"0.5rem" }}>
+            {STILI_DICEBEAR.map(s => {
+              const url = urlDicebear(s.id, semeEffettivo);
+              const selected = value === url;
+              return (
+                <button key={s.id} type="button" onClick={() => onChange(url)} style={{
+                  padding:"0.5rem 0.3rem", borderRadius:7, cursor:"pointer",
+                  background:"var(--panel2)", border:`2px solid ${selected ? "var(--purple)" : "var(--border)"}`,
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:"0.3rem",
+                  transition:"all 0.15s",
+                }}>
+                  <img src={url} alt="" style={{ width:44, height:44, borderRadius:"50%", background:"var(--bg-card)" }}
+                    onError={e => { e.target.style.opacity = 0.3; }} />
+                  <span style={{ fontSize:"0.66rem", color: selected ? "var(--purple)" : "var(--text-dim)", fontFamily:"'Cinzel',serif", fontWeight:600 }}>{s.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {tab === "locale" && (
+        <div>
+          <p style={{ fontSize:"0.74rem", color:"var(--text-dim)", marginBottom:"0.7rem", lineHeight:1.5 }}>
+            Carica un'immagine dal tuo dispositivo (jpg, png, webp, gif, svg — massimo 2 MB). Il file viene memorizzato localmente sul profilo, senza essere inviato a server esterni.
+          </p>
+          <label className="btn btn-outline" style={{ cursor:"pointer" }}>
+            📁 Scegli un file…
+            <input type="file" accept="image/*" onChange={handleFile} style={{ display:"none" }} />
+          </label>
+        </div>
+      )}
+
+      {tab === "url" && (
+        <div>
+          <p style={{ fontSize:"0.74rem", color:"var(--text-dim)", marginBottom:"0.7rem", lineHeight:1.5 }}>
+            Incolla l'URL diretto di un'immagine reperita online (jpg, png, webp, svg). L'immagine resterà ospitata al suo indirizzo originale: se il sito la rimuove, l'avatar non sarà più visibile.
+          </p>
+          <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+            <input className="input-field" value={urlInput} onChange={e => setUrlInput(e.target.value)}
+              placeholder="https://esempio.com/immagine.jpg" style={{ flex:"1 1 200px" }} />
+            <button type="button" className="btn btn-primary" onClick={applicaUrl} disabled={!urlInput.trim()}
+              style={{ opacity: urlInput.trim() ? 1 : 0.4 }}>Applica</button>
+          </div>
+        </div>
+      )}
+
+      {tab === "pinterest" && (
+        <div>
+          <p style={{ fontSize:"0.74rem", color:"var(--text-dim)", marginBottom:"0.7rem", lineHeight:1.5 }}>
+            Per usare un'immagine da <strong>Pinterest</strong>: apri il pin nel browser, fai clic destro sull'immagine
+            e seleziona <em>"Copia indirizzo immagine"</em>. Incolla qui sotto il link copiato (deve iniziare con{" "}
+            <code style={{ background:"var(--panel2)", padding:"0 0.3rem", borderRadius:3, color:"var(--gold)" }}>i.pinimg.com</code>).
+          </p>
+          <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+            <input className="input-field" value={pinInput} onChange={e => setPinInput(e.target.value)}
+              placeholder="https://i.pinimg.com/..." style={{ flex:"1 1 200px" }} />
+            <button type="button" className="btn btn-primary" onClick={applicaPinterest} disabled={!pinInput.trim()}
+              style={{ opacity: pinInput.trim() ? 1 : 0.4 }}>Applica</button>
+          </div>
+          {pinErrore && (
+            <div style={{
+              marginTop:"0.6rem", padding:"0.6rem 0.8rem", borderRadius:5,
+              background:"rgba(223,79,79,0.08)", border:"1px solid rgba(223,79,79,0.35)",
+              color:"var(--danger)", fontSize:"0.78rem", lineHeight:1.45,
+            }}>⚠ {pinErrore}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LoginPage({ onAccesso }) {
   const [modo,     setModo]     = useState("accesso"); // accesso | registrazione
   const [username, setUsername] = useState("");
   const [nome,     setNome]     = useState("");
   const [pw,       setPw]       = useState("");
   const [pw2,      setPw2]      = useState("");
+  const [avatar,   setAvatar]   = useState(null);
   const [errore,   setErrore]   = useState("");
 
   const utenti = caricaUtenti();
@@ -1519,7 +1694,7 @@ function LoginPage({ onAccesso }) {
     const nuovo = {
       passwordHash: pw ? hashPassword(pw) : "",
       displayName: (nome || username).trim(),
-      avatar: null,
+      avatar: avatar || null,
       color: "#8c6eff",
       createdAt: new Date().toISOString(),
       ultimoAccesso: new Date().toISOString(),
@@ -1609,6 +1784,20 @@ function LoginPage({ onAccesso }) {
             </div>
           )}
 
+          {modo === "registrazione" && (
+            <div style={{ marginBottom:"1.5rem" }}>
+              <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.55rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+                Avatar <span style={{ color:"var(--text-mute)", textTransform:"none", letterSpacing:0, fontStyle:"italic" }}>(facoltativo)</span>
+              </label>
+              <AvatarPicker
+                value={avatar}
+                seed={username || nome}
+                fallbackLabel={nome || username}
+                onChange={setAvatar}
+              />
+            </div>
+          )}
+
           {errore && (
             <div style={{
               padding:"0.7rem 0.9rem", borderRadius:6, marginBottom:"1rem",
@@ -1640,8 +1829,9 @@ function LoginPage({ onAccesso }) {
 function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfilo }) {
   const [schede, setSchede] = useState([]);
   const [modaleProfilo, setModaleProfilo] = useState(false);
-  const [nuovoNome,  setNuovoNome]  = useState(utenteData?.displayName || "");
-  const [nuovoColore,setNuovoColore]= useState(utenteData?.color || "#8c6eff");
+  const [nuovoNome,   setNuovoNome]   = useState(utenteData?.displayName || "");
+  const [nuovoColore, setNuovoColore] = useState(utenteData?.color || "#8c6eff");
+  const [nuovoAvatar, setNuovoAvatar] = useState(utenteData?.avatar || null);
 
   useEffect(() => {
     try {
@@ -1673,9 +1863,17 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
     if (!u[utente]) return;
     u[utente].displayName = (nuovoNome || utente).trim();
     u[utente].color = nuovoColore;
+    u[utente].avatar = nuovoAvatar || null;
     salvaUtenti(u);
     onAggiornaProfilo && onAggiornaProfilo();
     setModaleProfilo(false);
+  }
+
+  function apriModaleProfilo() {
+    setNuovoNome(utenteData?.displayName || "");
+    setNuovoColore(utenteData?.color || "#8c6eff");
+    setNuovoAvatar(utenteData?.avatar || null);
+    setModaleProfilo(true);
   }
 
   // Statistiche aggregate del profilo
@@ -1711,7 +1909,8 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
           backdropFilter:"blur(8px)",
         }}>
           <div onClick={e => e.stopPropagation()} className="card anim-fade-in" style={{
-            padding:"2rem", maxWidth:480, width:"100%", borderTop:"3px solid var(--purple)",
+            padding:"2rem", maxWidth:560, width:"100%", maxHeight:"90vh", overflowY:"auto",
+            borderTop:"3px solid var(--purple)",
           }}>
             <div className="section-title" style={{ marginBottom:"1.2rem" }}>Modifica profilo</div>
             <div style={{ marginBottom:"1rem" }}>
@@ -1720,12 +1919,26 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
               </label>
               <input className="input-field" value={nuovoNome} onChange={e => setNuovoNome(e.target.value)} />
             </div>
-            <div style={{ marginBottom:"1.5rem" }}>
+            <div style={{ marginBottom:"1.25rem" }}>
               <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
                 Colore identificativo
               </label>
               <input type="color" value={nuovoColore} onChange={e => setNuovoColore(e.target.value)}
                 style={{ width:60, height:36, border:"1px solid var(--border)", borderRadius:6, cursor:"pointer", background:"none" }} />
+              <div style={{ fontSize:"0.7rem", color:"var(--text-mute)", marginTop:"0.3rem", fontStyle:"italic" }}>
+                Usato per i gradienti dell'avatar predefinito e per gli sfondi del profilo.
+              </div>
+            </div>
+            <div style={{ marginBottom:"1.5rem" }}>
+              <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.55rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+                Avatar
+              </label>
+              <AvatarPicker
+                value={nuovoAvatar}
+                seed={utente}
+                fallbackLabel={nuovoNome || utente}
+                onChange={setNuovoAvatar}
+              />
             </div>
             <div style={{ display:"flex", gap:"0.6rem", justifyContent:"flex-end" }}>
               <button className="btn btn-outline" onClick={() => setModaleProfilo(false)}>Annulla</button>
@@ -1744,14 +1957,16 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
         <div style={{ position:"relative", display:"flex", alignItems:"center", gap:"1.25rem", flexWrap:"wrap" }}>
           <div style={{
             width:72, height:72, borderRadius:"50%",
-            background: `linear-gradient(135deg, ${utenteData?.color || "#8c6eff"}, var(--purple))`,
+            background: utenteData?.avatar
+              ? `url(${utenteData.avatar}) center/cover`
+              : `linear-gradient(135deg, ${utenteData?.color || "#8c6eff"}, var(--purple))`,
             display:"flex", alignItems:"center", justifyContent:"center",
             fontFamily:"'Cinzel',serif", fontWeight:900, color:"white", fontSize:"1.6rem",
             border:"2px solid var(--border-bright)",
             boxShadow:`0 0 24px ${utenteData?.color || "#8c6eff"}50`,
             flexShrink:0,
           }}>
-            {(utenteData?.displayName || utente || "?").slice(0,2).toUpperCase()}
+            {!utenteData?.avatar && (utenteData?.displayName || utente || "?").slice(0,2).toUpperCase()}
           </div>
           <div style={{ flex:1, minWidth:240 }}>
             <div className="section-title" style={{ marginBottom:"0.2rem" }}>Plancia del Portatore</div>
@@ -1764,7 +1979,7 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
             </div>
           </div>
           <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
-            <button className="btn btn-outline btn-sm" onClick={() => setModaleProfilo(true)}>⚙ Profilo</button>
+            <button className="btn btn-outline btn-sm" onClick={apriModaleProfilo}>⚙ Profilo</button>
             <button className="btn btn-outline btn-sm" onClick={onLogout} style={{ borderColor:"rgba(223,79,79,0.4)", color:"var(--danger)" }}>↪ Esci</button>
           </div>
         </div>
@@ -1801,7 +2016,7 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
         <div className="section-title" style={{ marginBottom:"0.75rem" }}>Azioni rapide</div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:"0.75rem" }}>
           {[
-            {label:"Crea Personaggio", icon:"✦", color:"var(--gold)",  page:"generator", desc:"Apri la procedura guidata di creazione."},
+            {label:"Crea Personaggio", icon:"✦", color:"var(--gold)",  page:"scheda",    desc:"Apri la Scheda e scegli tra creazione manuale o a dadi."},
             {label:"Le tue Schede",    icon:"📋", color:"var(--purple)",page:"scheda",    desc:"Gestisci, modifica e stampa le schede."},
             {label:"Battaglia",        icon:"⚔",  color:"var(--danger)",page:"battle",    desc:"Plancia tattica e tracker di combattimento."},
             {label:"Compendio",        icon:"📚", color:"var(--flux)",  page:"compendio", desc:"NPC, bestiario e arsenale di Arkadia."},
@@ -1830,7 +2045,7 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
       <div>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.75rem", flexWrap:"wrap", gap:"0.5rem" }}>
           <div className="section-title">I tuoi personaggi</div>
-          <button className="btn btn-gold btn-sm" onClick={() => setPage("generator")}>+ Nuovo Personaggio</button>
+          <button className="btn btn-gold btn-sm" onClick={() => setPage("scheda")}>+ Nuovo Personaggio</button>
         </div>
 
         {schede.length === 0 ? (
@@ -1843,7 +2058,7 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
               Inizia la tua avventura creando il primo personaggio. La procedura guidata calcola automaticamente
               statistiche, HP, Flusso, Difesa e Velocità in base a classe, razza e Frammento scelti.
             </p>
-            <button className="btn btn-gold" onClick={() => setPage("generator")}>✦ Crea il tuo primo personaggio</button>
+            <button className="btn btn-gold" onClick={() => setPage("scheda")}>✦ Crea il tuo primo personaggio</button>
           </div>
         ) : (
           <div className="grid-2">
@@ -1916,7 +2131,7 @@ function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfil
 // salvataggio automatico nella Scheda Giocabile) e aggiunge
 // istruzioni in stile manuale di gioco di ruolo.
 // ═══════════════════════════════════════════════════════
-function GeneratorePage({ setPage, utente }) {
+function GeneratorePage({ setPage, utente, onAnnulla, onApriScheda }) {
   const [step,             setStep]             = useState(0);
   const [catRoll,          setCatRoll]          = useState(null);
   const [grpRoll,          setGrpRoll]          = useState(null);
@@ -2006,6 +2221,7 @@ function GeneratorePage({ setPage, utente }) {
   }
 
   function goToScheda() {
+    if (onApriScheda && savedSchedaId) { onApriScheda(savedSchedaId); return; }
     if (setPage) setPage("scheda");
   }
 
@@ -2021,10 +2237,15 @@ function GeneratorePage({ setPage, utente }) {
 
   return (
     <div className="anim-fade-in">
+      {onAnnulla && (
+        <div style={{ marginBottom:"1rem" }}>
+          <button className="btn btn-outline btn-sm" onClick={onAnnulla}>← Torna alle schede</button>
+        </div>
+      )}
       <div style={{ marginBottom:"2rem" }}>
-        <div className="section-title">Procedura guidata di creazione</div>
-        <div className="page-title">Crea Personaggio</div>
-        <p className="page-subtitle">Una scheda completa in quattro passi. Tutte le statistiche — HP, Flusso, Difesa, Velocità, Scintille e skill di base — vengono calcolate automaticamente in base alle scelte effettuate. La scheda risultante viene salvata sul tuo profilo e può essere modificata, stampata o portata in combattimento.</p>
+        <div className="section-title">Creazione a dadi</div>
+        <div className="page-title">Nuovo Personaggio</div>
+        <p className="page-subtitle">Lascia che il Flusso di Arkadia2099 estragga categoria e Frammento con un lancio di dadi. La razza resta una scelta libera. Tutte le statistiche — HP, Flusso, Difesa, Velocità, Scintille e skill di base — vengono calcolate automaticamente in base alle scelte effettuate; la scheda risultante viene salvata sul tuo profilo e può essere modificata, stampata o portata in combattimento.</p>
       </div>
 
       {step<4 && (
@@ -2505,6 +2726,7 @@ function SchedaGiocabile({ setPage, utente }) {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [rankUpEvent, setRankUpEvent] = useState(null); // {oldRank, newRank, newHp, newFl, newDif}
   const [showCreateChoice, setShowCreateChoice] = useState(false); // modale scelta tra manuale e dadi
+  const [modalitaCreazione, setModalitaCreazione] = useState(null); // null | "dadi" — pannello inline di creazione casuale
   const [isPrinting, setIsPrinting] = useState(false); // forza rendering di tutti i tab per stampa PDF
   const avatarRef = useRef(null);
 
@@ -2688,6 +2910,26 @@ function SchedaGiocabile({ setPage, utente }) {
     e.target.value = "";
   };
 
+  // Se l'utente ha scelto la creazione casuale (dadi), mostra il pannello inline
+  if (!char && modalitaCreazione === "dadi") {
+    return (
+      <GeneratorePage
+        utente={utente}
+        onAnnulla={() => setModalitaCreazione(null)}
+        onApriScheda={(id) => {
+          setModalitaCreazione(null);
+          try {
+            const raw = localStorage.getItem("arcadia_schede_v1");
+            const lista = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(lista)) setPersonaggi(lista);
+          } catch {}
+          setSelectedId(id);
+          setTab("info");
+        }}
+      />
+    );
+  }
+
   // Se non c'è personaggio selezionato, mostra la lista
   if (!char) {
     return (
@@ -2741,7 +2983,7 @@ function SchedaGiocabile({ setPage, utente }) {
                 </div>
 
                 {/* Card CASUALE / DADI */}
-                <div onClick={() => { setShowCreateChoice(false); setPage && setPage("generator"); }} style={{
+                <div onClick={() => { setShowCreateChoice(false); setModalitaCreazione("dadi"); }} style={{
                   padding:"1.5rem 1rem", borderRadius:8, cursor:"pointer",
                   background:"var(--panel2)", border:"2px solid var(--border)",
                   textAlign:"center", transition:"all 0.2s",
@@ -6716,7 +6958,6 @@ export default function App() {
     {id:"home",      label:"Home"},
     {id:"wiki",      label:"Wiki"},
     {id:"compendio", label:"Compendio"},
-    {id:"generator", label:"Crea PG"},
     {id:"scheda",    label:"Scheda"},
     {id:"battle",    label:"Battaglia"},
     {id:"tracker",   label:"Tracker"},
@@ -6727,7 +6968,6 @@ export default function App() {
     home:      () => <HomePage setPage={setPage} />,
     wiki:      () => <WikiPage />,
     compendio: () => <CompendioPage />,
-    generator: () => <GeneratorePage setPage={setPage} utente={utente} />,
     scheda:    () => <SchedaGiocabile setPage={setPage} utente={utente} />,
     battle:    () => <BattlePage />,
     tracker:   () => <TrackerPage utente={utente} />,
@@ -6774,10 +7014,13 @@ export default function App() {
                 }}>
                 <span style={{
                   width:26, height:26, borderRadius:"50%",
-                  background: `linear-gradient(135deg, ${utenteData?.color || "#8c6eff"}, var(--purple))`,
+                  background: utenteData?.avatar
+                    ? `url(${utenteData.avatar}) center/cover`
+                    : `linear-gradient(135deg, ${utenteData?.color || "#8c6eff"}, var(--purple))`,
                   display:"flex", alignItems:"center", justifyContent:"center",
                   fontFamily:"'Cinzel',serif", fontWeight:700, color:"white", fontSize:"0.7rem",
-                }}>{(utenteData?.displayName || utente).slice(0,2).toUpperCase()}</span>
+                  flexShrink:0,
+                }}>{!utenteData?.avatar && (utenteData?.displayName || utente).slice(0,2).toUpperCase()}</span>
                 <span style={{ fontFamily:"'Cinzel',serif", fontWeight:600 }}>{utenteData?.displayName || utente}</span>
               </button>
             </div>
