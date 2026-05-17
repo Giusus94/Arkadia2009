@@ -1409,9 +1409,514 @@ function WikiPage() {
 }
 
 // ═══════════════════════════════════════════════════════
-// GENERATORE PG
+// SISTEMA UTENTI — Profili locali (localStorage)
 // ═══════════════════════════════════════════════════════
-function GeneratorePage({ setPage }) {
+// Nota: le credenziali sono memorizzate in chiaro/offuscato sul dispositivo.
+// Si tratta di un profilo locale, non di un sistema di autenticazione remoto.
+// ═══════════════════════════════════════════════════════
+
+const LS_UTENTI          = "arcadia_utenti_v1";
+const LS_UTENTE_CORRENTE = "arcadia_utente_corrente_v1";
+
+function hashPassword(pw) {
+  if (!pw) return "";
+  const sale = "arkadia2099-flusso";
+  const s = sale + pw + sale;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i);
+    h |= 0;
+  }
+  return btoa(String(h) + ":" + s.length);
+}
+
+function caricaUtenti() {
+  try {
+    const raw = localStorage.getItem(LS_UTENTI);
+    const u = raw ? JSON.parse(raw) : {};
+    return (u && typeof u === "object" && !Array.isArray(u)) ? u : {};
+  } catch { return {}; }
+}
+
+function salvaUtenti(u) {
+  try { localStorage.setItem(LS_UTENTI, JSON.stringify(u)); } catch {}
+}
+
+function getUtenteCorrente() {
+  try { return localStorage.getItem(LS_UTENTE_CORRENTE) || null; }
+  catch { return null; }
+}
+
+function setUtenteCorrente(username) {
+  try {
+    if (username) localStorage.setItem(LS_UTENTE_CORRENTE, username);
+    else localStorage.removeItem(LS_UTENTE_CORRENTE);
+  } catch {}
+}
+
+function normalizzaUsername(s) {
+  return String(s || "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+// Assegna all'utente indicato tutte le schede orfane (prive di owner) presenti
+// in localStorage. Garantisce continuità con i salvataggi precedenti al sistema profili.
+function assegnaSchedeOrfane(username) {
+  if (!username) return 0;
+  try {
+    const raw = localStorage.getItem("arcadia_schede_v1");
+    if (!raw) return 0;
+    const lista = JSON.parse(raw);
+    if (!Array.isArray(lista)) return 0;
+    let mod = 0;
+    const aggiornate = lista.map(s => {
+      if (!s.ownerUsername) { mod++; return { ...s, ownerUsername: username }; }
+      return s;
+    });
+    if (mod > 0) localStorage.setItem("arcadia_schede_v1", JSON.stringify(aggiornate));
+    return mod;
+  } catch { return 0; }
+}
+
+// ═══════════════════════════════════════════════════════
+// LOGIN / REGISTRAZIONE
+// ═══════════════════════════════════════════════════════
+function LoginPage({ onAccesso }) {
+  const [modo,     setModo]     = useState("accesso"); // accesso | registrazione
+  const [username, setUsername] = useState("");
+  const [nome,     setNome]     = useState("");
+  const [pw,       setPw]       = useState("");
+  const [pw2,      setPw2]      = useState("");
+  const [errore,   setErrore]   = useState("");
+
+  const utenti = caricaUtenti();
+  const numUtenti = Object.keys(utenti).length;
+
+  function eseguiAccesso(e) {
+    e?.preventDefault();
+    setErrore("");
+    const u = normalizzaUsername(username);
+    if (!u) { setErrore("Inserisci il tuo nome utente per accedere."); return; }
+    if (!utenti[u]) { setErrore("Nessun utente registrato con questo nome."); return; }
+    const atteso = utenti[u].passwordHash || "";
+    const fornito = hashPassword(pw);
+    if (atteso && atteso !== fornito) { setErrore("Password errata. Riprova."); return; }
+    if (!atteso && pw) { setErrore("Questo profilo non richiede password — lascia vuoto il campo."); return; }
+    utenti[u].ultimoAccesso = new Date().toISOString();
+    salvaUtenti(utenti);
+    setUtenteCorrente(u);
+    onAccesso(u);
+  }
+
+  function eseguiRegistrazione(e) {
+    e?.preventDefault();
+    setErrore("");
+    const u = normalizzaUsername(username);
+    if (!u || u.length < 3) { setErrore("Il nome utente deve contenere almeno 3 caratteri."); return; }
+    if (!/^[a-z0-9_]+$/.test(u)) { setErrore("Il nome utente può contenere solo lettere, numeri e trattini bassi."); return; }
+    if (utenti[u]) { setErrore("Esiste già un profilo con questo nome utente."); return; }
+    if (pw && pw.length < 4) { setErrore("La password deve contenere almeno 4 caratteri (oppure lascia vuoto per nessuna password)."); return; }
+    if (pw !== pw2) { setErrore("Le due password non coincidono."); return; }
+    const nuovo = {
+      passwordHash: pw ? hashPassword(pw) : "",
+      displayName: (nome || username).trim(),
+      avatar: null,
+      color: "#8c6eff",
+      createdAt: new Date().toISOString(),
+      ultimoAccesso: new Date().toISOString(),
+    };
+    utenti[u] = nuovo;
+    salvaUtenti(utenti);
+    setUtenteCorrente(u);
+    const adottate = assegnaSchedeOrfane(u);
+    if (adottate > 0) console.log(`[Auth] ${adottate} schede preesistenti assegnate a ${u}`);
+    onAccesso(u);
+  }
+
+  return (
+    <div style={{ minHeight:"80vh", display:"flex", alignItems:"center", justifyContent:"center", padding:"2rem 1rem" }}>
+      <div className="card anim-fade-in" style={{
+        maxWidth:520, width:"100%",
+        padding:"2.5rem 2rem",
+        borderTop:"3px solid var(--purple)",
+        boxShadow:"0 0 60px rgba(140,110,255,0.25)",
+      }}>
+        <div style={{ textAlign:"center", marginBottom:"1.75rem" }}>
+          <div style={{ fontSize:"2.4rem", marginBottom:"0.4rem" }}>✦</div>
+          <div className="section-title" style={{ marginBottom:"0.3rem" }}>Accesso al Codice</div>
+          <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.6rem", color:"var(--text-bright)", fontWeight:700, marginBottom:"0.4rem" }}>
+            {modo === "accesso" ? "Bentornato, Portatore" : "Registra un nuovo Portatore"}
+          </div>
+          <p style={{ color:"var(--text-dim)", fontSize:"0.86rem", lineHeight:1.55 }}>
+            {modo === "accesso"
+              ? "Accedi al tuo profilo per riprendere le tue schede, salvare nuovi personaggi e tenere traccia della progressione."
+              : "Crea un profilo locale per custodire le tue schede. I dati restano su questo dispositivo: nessun server, nessun account remoto."}
+          </p>
+        </div>
+
+        <div style={{ display:"flex", gap:"0.5rem", marginBottom:"1.5rem", background:"var(--panel2)", borderRadius:8, padding:"0.3rem", border:"1px solid var(--border)" }}>
+          <button onClick={() => { setModo("accesso"); setErrore(""); }} style={{
+            flex:1, padding:"0.6rem", borderRadius:6, border:"none", cursor:"pointer",
+            background: modo === "accesso" ? "var(--purple)" : "transparent",
+            color: modo === "accesso" ? "white" : "var(--text-dim)",
+            fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.82rem", letterSpacing:"0.06em",
+          }}>Accedi</button>
+          <button onClick={() => { setModo("registrazione"); setErrore(""); }} style={{
+            flex:1, padding:"0.6rem", borderRadius:6, border:"none", cursor:"pointer",
+            background: modo === "registrazione" ? "var(--gold)" : "transparent",
+            color: modo === "registrazione" ? "#1a0f00" : "var(--text-dim)",
+            fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:"0.82rem", letterSpacing:"0.06em",
+          }}>Registrati</button>
+        </div>
+
+        <form onSubmit={modo === "accesso" ? eseguiAccesso : eseguiRegistrazione}>
+          {modo === "registrazione" && (
+            <div style={{ marginBottom:"1rem" }}>
+              <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+                Nome visibile
+              </label>
+              <input className="input-field" value={nome} onChange={e => setNome(e.target.value)}
+                placeholder="Come vuoi essere chiamato al tavolo" />
+            </div>
+          )}
+
+          <div style={{ marginBottom:"1rem" }}>
+            <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+              Nome utente
+            </label>
+            <input className="input-field" value={username} onChange={e => setUsername(e.target.value)}
+              placeholder="es. alessia, max_99, custode"
+              autoFocus autoCapitalize="off" autoCorrect="off" />
+            <div style={{ fontSize:"0.68rem", color:"var(--text-mute)", marginTop:"0.3rem", fontStyle:"italic" }}>
+              Solo lettere minuscole, numeri e trattini bassi. È l'identificativo del profilo sul dispositivo.
+            </div>
+          </div>
+
+          <div style={{ marginBottom: modo === "registrazione" ? "1rem" : "1.5rem" }}>
+            <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+              Password {modo === "registrazione" && <span style={{ color:"var(--text-mute)", textTransform:"none", letterSpacing:0, fontStyle:"italic" }}>(facoltativa)</span>}
+            </label>
+            <input className="input-field" type="password" value={pw} onChange={e => setPw(e.target.value)}
+              placeholder={modo === "registrazione" ? "Lascia vuoto per un profilo senza password" : "Inserisci la password"} />
+          </div>
+
+          {modo === "registrazione" && (
+            <div style={{ marginBottom:"1.5rem" }}>
+              <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+                Conferma password
+              </label>
+              <input className="input-field" type="password" value={pw2} onChange={e => setPw2(e.target.value)}
+                placeholder="Ripeti la password" />
+            </div>
+          )}
+
+          {errore && (
+            <div style={{
+              padding:"0.7rem 0.9rem", borderRadius:6, marginBottom:"1rem",
+              background:"rgba(223,79,79,0.08)", border:"1px solid rgba(223,79,79,0.35)",
+              color:"var(--danger)", fontSize:"0.82rem",
+            }}>
+              ⚠ {errore}
+            </div>
+          )}
+
+          <button type="submit" className={modo === "accesso" ? "btn btn-primary" : "btn btn-gold"} style={{ width:"100%", padding:"0.85rem", fontSize:"0.9rem" }}>
+            {modo === "accesso" ? "→ Entra in Arkadia" : "✦ Crea il Profilo"}
+          </button>
+        </form>
+
+        <div style={{ marginTop:"1.5rem", paddingTop:"1.25rem", borderTop:"1px solid var(--border)", fontSize:"0.76rem", color:"var(--text-mute)", textAlign:"center", lineHeight:1.55 }}>
+          {numUtenti === 0
+            ? <>Nessun profilo presente su questo dispositivo. Crea il primo per iniziare.</>
+            : <>{numUtenti} {numUtenti === 1 ? "profilo registrato" : "profili registrati"} su questo dispositivo.</>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// DASHBOARD — Interfaccia personale del Portatore
+// ═══════════════════════════════════════════════════════
+function DashboardPage({ utente, utenteData, setPage, onLogout, onAggiornaProfilo }) {
+  const [schede, setSchede] = useState([]);
+  const [modaleProfilo, setModaleProfilo] = useState(false);
+  const [nuovoNome,  setNuovoNome]  = useState(utenteData?.displayName || "");
+  const [nuovoColore,setNuovoColore]= useState(utenteData?.color || "#8c6eff");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("arcadia_schede_v1");
+      const parsed = raw ? JSON.parse(raw) : [];
+      const arr = Array.isArray(parsed) ? parsed : [];
+      setSchede(arr.filter(s => s.ownerUsername === utente));
+    } catch { setSchede([]); }
+  }, [utente]);
+
+  function apriScheda(id) {
+    try { localStorage.setItem("arcadia_schede_selected_v1", String(id)); } catch {}
+    setPage("scheda");
+  }
+
+  function eliminaScheda(id) {
+    if (!confirm("Eliminare definitivamente questa scheda? L'azione non è reversibile.")) return;
+    try {
+      const raw = localStorage.getItem("arcadia_schede_v1");
+      const lista = raw ? JSON.parse(raw) : [];
+      const filtrate = (Array.isArray(lista) ? lista : []).filter(s => String(s.id) !== String(id));
+      localStorage.setItem("arcadia_schede_v1", JSON.stringify(filtrate));
+      setSchede(filtrate.filter(s => s.ownerUsername === utente));
+    } catch (e) { console.error(e); }
+  }
+
+  function salvaProfilo() {
+    const u = caricaUtenti();
+    if (!u[utente]) return;
+    u[utente].displayName = (nuovoNome || utente).trim();
+    u[utente].color = nuovoColore;
+    salvaUtenti(u);
+    onAggiornaProfilo && onAggiornaProfilo();
+    setModaleProfilo(false);
+  }
+
+  // Statistiche aggregate del profilo
+  const stats = (() => {
+    if (schede.length === 0) return null;
+    let paTot = 0, hpTot = 0, hpMaxTot = 0;
+    const ranks = {};
+    schede.forEach(p => {
+      paTot += (p.pa || 0);
+      const cls = CLASSI.find(c => c.nome === p.classeNome) || CLASSI[0];
+      const razza = RAZZE.find(r => r.nome === p.razzaNome) || RAZZE[0];
+      const rank = getRankFromPA(p.pa || 0);
+      let hpMax = Math.round(cls.hp * RANK_MHP[rank]);
+      if (typeof razza.mod_hp === "number") {
+        if (razza.mod_hp < 0 && razza.mod_hp > -1) hpMax = Math.ceil(hpMax * (1 + razza.mod_hp));
+        else hpMax += razza.mod_hp;
+      }
+      hpMaxTot += hpMax;
+      hpTot += (p.hp_curr ?? hpMax);
+      ranks[rank] = (ranks[rank] || 0) + 1;
+    });
+    const rankPiuAlto = RANKS.slice().reverse().find(r => ranks[r]);
+    return { paTot, hpTot, hpMaxTot, rankPiuAlto, numSchede: schede.length };
+  })();
+
+  return (
+    <div className="anim-fade-in">
+      {/* MODALE MODIFICA PROFILO */}
+      {modaleProfilo && (
+        <div onClick={() => setModaleProfilo(false)} style={{
+          position:"fixed", inset:0, background:"rgba(3,1,8,0.92)", zIndex:300,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem",
+          backdropFilter:"blur(8px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} className="card anim-fade-in" style={{
+            padding:"2rem", maxWidth:480, width:"100%", borderTop:"3px solid var(--purple)",
+          }}>
+            <div className="section-title" style={{ marginBottom:"1.2rem" }}>Modifica profilo</div>
+            <div style={{ marginBottom:"1rem" }}>
+              <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+                Nome visibile
+              </label>
+              <input className="input-field" value={nuovoNome} onChange={e => setNuovoNome(e.target.value)} />
+            </div>
+            <div style={{ marginBottom:"1.5rem" }}>
+              <label style={{ fontSize:"0.72rem", color:"var(--text-dim)", display:"block", marginBottom:"0.35rem", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+                Colore identificativo
+              </label>
+              <input type="color" value={nuovoColore} onChange={e => setNuovoColore(e.target.value)}
+                style={{ width:60, height:36, border:"1px solid var(--border)", borderRadius:6, cursor:"pointer", background:"none" }} />
+            </div>
+            <div style={{ display:"flex", gap:"0.6rem", justifyContent:"flex-end" }}>
+              <button className="btn btn-outline" onClick={() => setModaleProfilo(false)}>Annulla</button>
+              <button className="btn btn-gold" onClick={salvaProfilo}>Salva</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER PROFILO */}
+      <div className="card" style={{ padding:"1.5rem 1.75rem", marginBottom:"1.5rem", position:"relative", overflow:"hidden" }}>
+        <div style={{
+          position:"absolute", inset:0, opacity:0.06, pointerEvents:"none",
+          background: `radial-gradient(circle at 20% 30%, ${utenteData?.color || "#8c6eff"}, transparent 60%)`,
+        }} />
+        <div style={{ position:"relative", display:"flex", alignItems:"center", gap:"1.25rem", flexWrap:"wrap" }}>
+          <div style={{
+            width:72, height:72, borderRadius:"50%",
+            background: `linear-gradient(135deg, ${utenteData?.color || "#8c6eff"}, var(--purple))`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"'Cinzel',serif", fontWeight:900, color:"white", fontSize:"1.6rem",
+            border:"2px solid var(--border-bright)",
+            boxShadow:`0 0 24px ${utenteData?.color || "#8c6eff"}50`,
+            flexShrink:0,
+          }}>
+            {(utenteData?.displayName || utente || "?").slice(0,2).toUpperCase()}
+          </div>
+          <div style={{ flex:1, minWidth:240 }}>
+            <div className="section-title" style={{ marginBottom:"0.2rem" }}>Plancia del Portatore</div>
+            <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"1.6rem", fontWeight:700, color:"var(--text-bright)", lineHeight:1.1 }}>
+              {utenteData?.displayName || utente}
+            </div>
+            <div style={{ fontSize:"0.78rem", color:"var(--text-dim)", marginTop:"0.3rem" }}>
+              @{utente}
+              {utenteData?.ultimoAccesso && <> · ultimo accesso: {new Date(utenteData.ultimoAccesso).toLocaleString("it-IT")}</>}
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+            <button className="btn btn-outline btn-sm" onClick={() => setModaleProfilo(true)}>⚙ Profilo</button>
+            <button className="btn btn-outline btn-sm" onClick={onLogout} style={{ borderColor:"rgba(223,79,79,0.4)", color:"var(--danger)" }}>↪ Esci</button>
+          </div>
+        </div>
+      </div>
+
+      {/* STATISTICHE AGGREGATE */}
+      {stats && (
+        <div className="grid-4" style={{ marginBottom:"1.5rem" }}>
+          <div className="card" style={{ padding:"1rem 1.2rem", textAlign:"center" }}>
+            <div style={{ fontSize:"0.68rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>Personaggi</div>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"2.2rem", fontWeight:900, color:"var(--purple)", lineHeight:1.1 }}>{stats.numSchede}</div>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-mute)", marginTop:"0.2rem" }}>schede registrate</div>
+          </div>
+          <div className="card" style={{ padding:"1rem 1.2rem", textAlign:"center" }}>
+            <div style={{ fontSize:"0.68rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>PA Totali</div>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"2.2rem", fontWeight:900, color:"var(--gold)", lineHeight:1.1 }}>{stats.paTot.toLocaleString("it-IT")}</div>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-mute)", marginTop:"0.2rem" }}>punti accumulati</div>
+          </div>
+          <div className="card" style={{ padding:"1rem 1.2rem", textAlign:"center" }}>
+            <div style={{ fontSize:"0.68rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>Rank più alto</div>
+            <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:"2.2rem", fontWeight:900, color: getRankColor(stats.rankPiuAlto), lineHeight:1.1 }}>{stats.rankPiuAlto}</div>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-mute)", marginTop:"0.2rem" }}>{RANK_TITOLI[stats.rankPiuAlto]}</div>
+          </div>
+          <div className="card" style={{ padding:"1rem 1.2rem", textAlign:"center" }}>
+            <div style={{ fontSize:"0.68rem", color:"var(--text-dim)", textTransform:"uppercase", letterSpacing:"0.1em" }}>HP del gruppo</div>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"2.2rem", fontWeight:900, color:"var(--danger)", lineHeight:1.1 }}>{stats.hpTot}/{stats.hpMaxTot}</div>
+            <div style={{ fontSize:"0.7rem", color:"var(--text-mute)", marginTop:"0.2rem" }}>somma di tutte le schede</div>
+          </div>
+        </div>
+      )}
+
+      {/* AZIONI RAPIDE */}
+      <div style={{ marginBottom:"1.5rem" }}>
+        <div className="section-title" style={{ marginBottom:"0.75rem" }}>Azioni rapide</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:"0.75rem" }}>
+          {[
+            {label:"Crea Personaggio", icon:"✦", color:"var(--gold)",  page:"generator", desc:"Apri la procedura guidata di creazione."},
+            {label:"Le tue Schede",    icon:"📋", color:"var(--purple)",page:"scheda",    desc:"Gestisci, modifica e stampa le schede."},
+            {label:"Battaglia",        icon:"⚔",  color:"var(--danger)",page:"battle",    desc:"Plancia tattica e tracker di combattimento."},
+            {label:"Compendio",        icon:"📚", color:"var(--flux)",  page:"compendio", desc:"NPC, bestiario e arsenale di Arkadia."},
+            {label:"Wiki",             icon:"📖", color:"var(--success)",page:"wiki",     desc:"Classi, razze, frammenti e regole."},
+            {label:"Tracker",          icon:"📊", color:"var(--gold-bright)",page:"tracker",desc:"PA, PS e progressione delle Skill."},
+          ].map(a => (
+            <button key={a.page} onClick={() => setPage(a.page)} className="card" style={{
+              padding:"1rem", textAlign:"left", cursor:"pointer",
+              border:`1px solid ${a.color}40`, transition:"all 0.2s",
+              display:"flex", flexDirection:"column", gap:"0.3rem",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.borderColor=a.color; e.currentTarget.style.boxShadow=`0 6px 20px ${a.color}30`; }}
+              onMouseLeave={e => { e.currentTarget.style.transform=""; e.currentTarget.style.borderColor=`${a.color}40`; e.currentTarget.style.boxShadow=""; }}
+            >
+              <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                <span style={{ fontSize:"1.4rem" }}>{a.icon}</span>
+                <span style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"0.92rem" }}>{a.label}</span>
+              </div>
+              <div style={{ fontSize:"0.74rem", color:"var(--text-dim)", lineHeight:1.45 }}>{a.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* LISTA SCHEDE */}
+      <div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.75rem", flexWrap:"wrap", gap:"0.5rem" }}>
+          <div className="section-title">I tuoi personaggi</div>
+          <button className="btn btn-gold btn-sm" onClick={() => setPage("generator")}>+ Nuovo Personaggio</button>
+        </div>
+
+        {schede.length === 0 ? (
+          <div className="card" style={{ padding:"2.5rem 1.5rem", textAlign:"center" }}>
+            <div style={{ fontSize:"2.6rem", marginBottom:"0.6rem" }}>📜</div>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.05rem", color:"var(--text-bright)", marginBottom:"0.4rem" }}>
+              Nessun personaggio registrato
+            </div>
+            <p style={{ color:"var(--text-dim)", fontSize:"0.86rem", maxWidth:480, margin:"0 auto 1.25rem", lineHeight:1.55 }}>
+              Inizia la tua avventura creando il primo personaggio. La procedura guidata calcola automaticamente
+              statistiche, HP, Flusso, Difesa e Velocità in base a classe, razza e Frammento scelti.
+            </p>
+            <button className="btn btn-gold" onClick={() => setPage("generator")}>✦ Crea il tuo primo personaggio</button>
+          </div>
+        ) : (
+          <div className="grid-2">
+            {schede.map(p => {
+              const cls   = CLASSI.find(c => c.nome === p.classeNome) || CLASSI[0];
+              const razza = RAZZE.find(r => r.nome === p.razzaNome) || RAZZE[0];
+              const rank  = getRankFromPA(p.pa || 0);
+              const rCol  = getRankColor(rank);
+              const hpMax = (() => {
+                let hp = Math.round(cls.hp * RANK_MHP[rank]);
+                if (typeof razza.mod_hp === "number") {
+                  if (razza.mod_hp < 0 && razza.mod_hp > -1) hp = Math.ceil(hp * (1 + razza.mod_hp));
+                  else hp += razza.mod_hp;
+                }
+                return Math.max(1, hp);
+              })();
+              const hpCurr = p.hp_curr ?? hpMax;
+              return (
+                <div key={p.id} className="card" style={{ padding:"1.1rem", cursor:"pointer", position:"relative" }}
+                  onClick={() => apriScheda(p.id)}>
+                  <div style={{ display:"flex", alignItems:"center", gap:"1rem" }}>
+                    <div style={{
+                      width:60, height:60, borderRadius:"50%", flexShrink:0,
+                      background: p.avatar ? `url(${p.avatar}) center/cover` : `linear-gradient(135deg, ${p.token_color||"#8c6eff"}, ${rCol})`,
+                      border: `2px solid ${rCol}`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      fontFamily:"'Cinzel',serif", fontWeight:700, color:"white",
+                    }}>
+                      {!p.avatar && (p.nome||"?").slice(0,2).toUpperCase()}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:"0.5rem", marginBottom:"0.15rem" }}>
+                        <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--text-bright)", fontSize:"1rem" }}>{p.nome}</div>
+                        <RankBadge rank={rank} size="sm" />
+                      </div>
+                      <div style={{ fontSize:"0.78rem", color:"var(--text-dim)" }}>
+                        {cls.icon} {p.classeNome} · {p.razzaNome}
+                      </div>
+                      <div style={{ display:"flex", gap:"0.6rem", marginTop:"0.35rem", fontSize:"0.72rem" }}>
+                        <span style={{ color:"var(--danger)" }}>HP {hpCurr}/{hpMax}</span>
+                        <span style={{ color:"var(--gold)" }}>{(p.pa||0).toLocaleString("it-IT")} PA</span>
+                      </div>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); eliminaScheda(p.id); }}
+                      style={{
+                        background:"transparent", border:"1px solid transparent",
+                        color:"var(--text-mute)", cursor:"pointer", padding:"0.3rem 0.5rem",
+                        borderRadius:5, fontSize:"0.95rem", lineHeight:1,
+                      }}
+                      title="Elimina scheda"
+                      onMouseEnter={e => { e.currentTarget.style.color="var(--danger)"; e.currentTarget.style.borderColor="rgba(223,79,79,0.3)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.color="var(--text-mute)"; e.currentTarget.style.borderColor="transparent"; }}
+                    >🗑</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// CREAZIONE PERSONAGGIO — Procedura guidata con automazioni
+// Sostituisce il precedente Generatore: ne mantiene tutte
+// le automazioni (calcolo HP/FL/Difesa/Velocità/Scintille,
+// applicazione dei modificatori razziali, generazione skill,
+// salvataggio automatico nella Scheda Giocabile) e aggiunge
+// istruzioni in stile manuale di gioco di ruolo.
+// ═══════════════════════════════════════════════════════
+function GeneratorePage({ setPage, utente }) {
   const [step,             setStep]             = useState(0);
   const [catRoll,          setCatRoll]          = useState(null);
   const [grpRoll,          setGrpRoll]          = useState(null);
@@ -1448,15 +1953,19 @@ function GeneratorePage({ setPage }) {
       scintille:3+(r.nome==="Umano"?1:0), pa:0, rank:"F",
     });
 
-    // ═══ SALVA AUTOMATICAMENTE NELLA SCHEDA GIOCABILE ═══
+    // ═══ SALVATAGGIO AUTOMATICO NELLA SCHEDA GIOCABILE ═══
+    // La scheda viene scritta su localStorage e associata all'utente corrente.
+    // Tutte le statistiche derivate (HP, Flusso, Difesa, Velocità, Scintille,
+    // skill di base) vengono calcolate da classe + razza + Frammento.
     const newId = Date.now();
     const schedaPG = {
       id: newId,
+      ownerUsername: utente || null,
       nome: pgName || "Senza Nome",
       classeNome: c.nome,
       razzaNome: r.nome,
       frammentoNome: selectedFrammento.nome,
-      locked: true, // creata dal Generatore — classe/razza/frammento non modificabili
+      locked: true, // creata dalla procedura guidata: classe/razza/Frammento non modificabili
       background: pgBackground || "",
       pa: 0,
       hp_curr: baseHP,
@@ -1470,7 +1979,7 @@ function GeneratorePage({ setPage }) {
       skills: c.skills.map(sk => ({ nome: sk.nome, ps: 0, costo: sk.costo })),
       condizioni: [],
       log: [{
-        msg: `Scheda creata dal Generatore · ${c.nome} · ${r.nome} · ${selectedFrammento.nome}`,
+        msg: `Scheda creata · ${c.nome} · ${r.nome} · ${selectedFrammento.nome}`,
         type: "level",
         time: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
       }],
@@ -1513,9 +2022,9 @@ function GeneratorePage({ setPage }) {
   return (
     <div className="anim-fade-in">
       <div style={{ marginBottom:"2rem" }}>
-        <div className="section-title">Crea il tuo avventuriero</div>
-        <div className="page-title">Generatore Personaggio</div>
-        <p className="page-subtitle">Tira i dadi — il Flusso decide la tua natura.</p>
+        <div className="section-title">Procedura guidata di creazione</div>
+        <div className="page-title">Crea Personaggio</div>
+        <p className="page-subtitle">Una scheda completa in quattro passi. Tutte le statistiche — HP, Flusso, Difesa, Velocità, Scintille e skill di base — vengono calcolate automaticamente in base alle scelte effettuate. La scheda risultante viene salvata sul tuo profilo e può essere modificata, stampata o portata in combattimento.</p>
       </div>
 
       {step<4 && (
@@ -1540,8 +2049,10 @@ function GeneratorePage({ setPage }) {
       {step<=1 && (
         <div className="anim-slide-in">
           <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"2rem", marginBottom:"1.5rem" }}>
-            <div className="section-title" style={{ marginBottom:"1rem" }}>Passo 1 — Categoria Classe</div>
-            <p style={{ color:"var(--text-dim)", fontSize:"0.88rem", marginBottom:"1.5rem" }}>Tira 1d6 per la categoria. Poi scegli 1 delle 4 classi in quella categoria.</p>
+            <div className="section-title" style={{ marginBottom:"1rem" }}>Passo 1 — Categoria e Classe</div>
+            <p style={{ color:"var(--text-dim)", fontSize:"0.88rem", marginBottom:"1.5rem", lineHeight:1.55 }}>
+              Tira 1d6 per determinare la categoria di appartenenza. Ciascuna delle sei categorie raccoglie quattro classi che condividono ruolo tattico e archetipo narrativo. Dopo il tiro, scegli liberamente una delle quattro classi disponibili: la decisione finale spetta sempre al giocatore.
+            </p>
             <div style={{ display:"flex", justifyContent:"center", marginBottom:"1.5rem" }}>
               <Dice value={catRoll} rolling={rolling1} settled={settled1} label="Tira per la Categoria" onClick={() => !rolling1 && rollDice(1,setCatRoll,setRolling1,setSettled1)} />
             </div>
@@ -1597,7 +2108,9 @@ function GeneratorePage({ setPage }) {
         <div className="anim-slide-in">
           <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"2rem", marginBottom:"1.5rem" }}>
             <div className="section-title" style={{ marginBottom:"1rem" }}>Passo 2 — Frammento del Creatore</div>
-            <p style={{ color:"var(--text-dim)", fontSize:"0.88rem", marginBottom:"1.5rem" }}>Tira 1d6 per il gruppo. Poi scegli 1 dei 6 frammenti in quel gruppo.</p>
+            <p style={{ color:"var(--text-dim)", fontSize:"0.88rem", marginBottom:"1.5rem", lineHeight:1.55 }}>
+              Tira 1d6 per estrarre il gruppo del Frammento dormiente nel tuo personaggio. I trentasei Frammenti del Creatore sono suddivisi in sei gruppi tematici. Una volta determinato il gruppo, scegli uno dei sei Frammenti disponibili: ne erediterai la meccanica passiva e il vincolo narrativo.
+            </p>
             <div style={{ display:"flex", justifyContent:"center", marginBottom:"1.5rem" }}>
               <Dice value={grpRoll} rolling={rolling2} settled={settled2} label="Tira per il Gruppo" onClick={() => !rolling2 && rollDice(1,setGrpRoll,setRolling2,setSettled2)} />
             </div>
@@ -1638,7 +2151,9 @@ function GeneratorePage({ setPage }) {
         <div className="anim-slide-in">
           <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"2rem", marginBottom:"1.5rem" }}>
             <div className="section-title" style={{ marginBottom:"1rem" }}>Passo 3 — Razza</div>
-            <p style={{ color:"var(--text-dim)", fontSize:"0.88rem", marginBottom:"1.25rem" }}>Scelta libera — nessun dado.</p>
+            <p style={{ color:"var(--text-dim)", fontSize:"0.88rem", marginBottom:"1.25rem", lineHeight:1.55 }}>
+              Scegli la razza del personaggio. La selezione è libera e non richiede tiri di dado. Bonus e malus razziali (caratteristiche, HP massimi, Flusso massimo, Difesa, Velocità) vengono applicati automaticamente nel passo finale.
+            </p>
             <div className="grid-3">
               {RAZZE.map(r => (
                 <div key={r.nome} onClick={() => setSelectedRazza(r)} className="card" style={{
@@ -1660,18 +2175,18 @@ function GeneratorePage({ setPage }) {
             <div className="section-title" style={{ marginBottom:"1rem" }}>Passo 4 — Dettagli</div>
             <div className="grid-2">
               <div>
-                <label style={{ fontSize:"0.75rem", color:"var(--text-dim)", display:"block", marginBottom:"0.4rem", textTransform:"uppercase", letterSpacing:"0.08em" }}>Nome Personaggio</label>
-                <input className="input-field" value={pgName} onChange={e => setPgName(e.target.value)} placeholder="Come ti chiami in Arkadia2099?" />
+                <label style={{ fontSize:"0.75rem", color:"var(--text-dim)", display:"block", marginBottom:"0.4rem", textTransform:"uppercase", letterSpacing:"0.08em" }}>Nome del personaggio</label>
+                <input className="input-field" value={pgName} onChange={e => setPgName(e.target.value)} placeholder="Il nome con cui sarà conosciuto in Arkadia2099" />
               </div>
               <div>
                 <label style={{ fontSize:"0.75rem", color:"var(--text-dim)", display:"block", marginBottom:"0.4rem", textTransform:"uppercase", letterSpacing:"0.08em" }}>Background</label>
-                <input className="input-field" value={pgBackground} onChange={e => setPgBackground(e.target.value)} placeholder="Es: Sopravvissuto del Pandora" />
+                <input className="input-field" value={pgBackground} onChange={e => setPgBackground(e.target.value)} placeholder="Es: Sopravvissuto del Pandora, Disertore di una Fazione…" />
               </div>
             </div>
           </div>
           <div style={{ display:"flex", gap:"0.75rem", justifyContent:"flex-end" }}>
             <button className="btn btn-outline" onClick={() => setStep(1)}>← Indietro</button>
-            <button className="btn btn-gold" disabled={!selectedRazza} onClick={generateSheet} style={{ opacity:selectedRazza?1:0.4, cursor:selectedRazza?"pointer":"default" }}>✨ Genera Scheda</button>
+            <button className="btn btn-gold" disabled={!selectedRazza} onClick={generateSheet} style={{ opacity:selectedRazza?1:0.4, cursor:selectedRazza?"pointer":"default" }}>✦ Crea e salva la scheda</button>
           </div>
         </div>
       )}
@@ -1715,14 +2230,14 @@ function GeneratorePage({ setPage }) {
               }}>
                 <div>
                   <div style={{ fontFamily:"'Cinzel',serif", fontWeight:700, color:"var(--green)", fontSize:"0.88rem", marginBottom:"0.2rem" }}>
-                    ✓ Scheda salvata automaticamente
+                    ✓ Scheda salvata sul tuo profilo
                   </div>
                   <div style={{ fontSize:"0.78rem", color:"var(--text-dim)" }}>
-                    Puoi ora combattere, salire di Rank, modificare HP/FL e stampare il PDF dalla Scheda Giocabile.
+                    Da ora puoi modificare HP e Flusso, applicare condizioni, far salire di Rank il personaggio, esportare un PDF stampabile e portarlo nella plancia di Battaglia.
                   </div>
                 </div>
                 <button className="btn btn-primary" style={{ fontSize:"0.8rem", whiteSpace:"nowrap" }} onClick={goToScheda}>
-                  📋 Apri nella Scheda →
+                  📋 Apri la scheda →
                 </button>
               </div>
             )}
@@ -1917,12 +2432,13 @@ function TokenCanvas({ char, rank }) {
   return <canvas ref={ref} className="token-canvas" style={{ width:80, height:80, borderRadius:"50%" }} />;
 }
 
-function SchedaGiocabile({ setPage }) {
+function SchedaGiocabile({ setPage, utente }) {
   const defaultChar = useCallback(() => {
     const c = CLASSI[0];
     const r = RAZZE[0];
     return {
       id: Date.now(),
+      ownerUsername: utente || null,
       nome: "Nuovo Personaggio",
       classeNome: c.nome,
       razzaNome: r.nome,
@@ -1941,7 +2457,7 @@ function SchedaGiocabile({ setPage }) {
       condizioni: [],
       log: [],
     };
-  }, []);
+  }, [utente]);
 
   const [personaggi, setPersonaggi] = useState(() => {
     try {
@@ -2006,7 +2522,9 @@ function SchedaGiocabile({ setPage }) {
     } catch {}
   }, [selectedId, hasInitialized]);
 
-  const char = selectedId ? personaggi.find(p => String(p.id) === String(selectedId)) : null;
+  const char = selectedId
+    ? personaggi.find(p => String(p.id) === String(selectedId) && (!utente || p.ownerUsername === utente))
+    : null;
 
   const updateChar = useCallback((patch) => {
     setPersonaggi(prev => prev.map(p => String(p.id) === String(selectedId) ? { ...p, ...patch } : p));
@@ -2262,18 +2780,21 @@ function SchedaGiocabile({ setPage }) {
           </label>
         </div>
 
-        {personaggi.length === 0 ? (
-          <div className="card" style={{ padding:"3rem 2rem", textAlign:"center" }}>
-            <div style={{ fontSize:"3rem", marginBottom:"1rem" }}>📜</div>
-            <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.1rem", color:"var(--text-bright)", marginBottom:"0.5rem" }}>Nessuna scheda ancora creata</div>
-            <p style={{ color:"var(--text-dim)", fontSize:"0.9rem", marginBottom:"1.5rem" }}>
-              Inizia creando una nuova scheda. Puoi compilarla manualmente o lasciare che il caos di Arkadia2099 decida per te con un lancio di dadi.
-            </p>
-            <button className="btn btn-gold" onClick={() => setShowCreateChoice(true)}>✦ Crea la Prima Scheda</button>
-          </div>
-        ) : (
+        {(() => {
+          const visibili = utente ? personaggi.filter(p => p.ownerUsername === utente) : personaggi;
+          if (visibili.length === 0) return (
+            <div className="card" style={{ padding:"3rem 2rem", textAlign:"center" }}>
+              <div style={{ fontSize:"3rem", marginBottom:"1rem" }}>📜</div>
+              <div style={{ fontFamily:"'Cinzel',serif", fontSize:"1.1rem", color:"var(--text-bright)", marginBottom:"0.5rem" }}>Nessuna scheda ancora creata</div>
+              <p style={{ color:"var(--text-dim)", fontSize:"0.9rem", marginBottom:"1.5rem", maxWidth:520, margin:"0 auto 1.5rem", lineHeight:1.55 }}>
+                Inizia creando una nuova scheda. Puoi compilarla manualmente oppure lasciare che il Flusso di Arkadia2099 estragga categoria e Frammento con un lancio di dadi.
+              </p>
+              <button className="btn btn-gold" onClick={() => setShowCreateChoice(true)}>✦ Crea la prima scheda</button>
+            </div>
+          );
+          return (
           <div className="grid-2">
-            {personaggi.map(p => {
+            {visibili.map(p => {
               const cls = CLASSI.find(c => c.nome === p.classeNome) || CLASSI[0];
               const rank = getRankFromPA(p.pa);
               const rCol = getRankColor(rank);
@@ -2308,7 +2829,8 @@ function SchedaGiocabile({ setPage }) {
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </div>
     );
   }
@@ -6157,27 +6679,59 @@ function TrackerPage() {
 // APP ROOT
 // ═══════════════════════════════════════════════════════
 export default function App() {
-  const [page, setPage] = useState("home");
+  const [utente, setUtente] = useState(() => getUtenteCorrente());
+  const [utentiTick, setUtentiTick] = useState(0); // forza refresh dopo modifica profilo
+  const [page, setPage] = useState(() => utente ? "dashboard" : "home");
+
+  const utenti = useMemo(() => caricaUtenti(), [utentiTick, utente]);
+  const utenteData = utente ? utenti[utente] : null;
+
+  function eseguiLogout() {
+    setUtenteCorrente(null);
+    setUtente(null);
+    setPage("home");
+  }
+
+  function aggiornaProfilo() {
+    setUtentiTick(t => t + 1);
+  }
+
+  // Se non c'è utente loggato, mostra solo la schermata di accesso/registrazione
+  if (!utente) {
+    return (
+      <>
+        <GlobalStyles />
+        <div id="app-root">
+          <FluxParticles />
+          <div className="app-content">
+            <LoginPage onAccesso={(u) => { setUtente(u); setPage("dashboard"); }} />
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const navItems = [
+    {id:"dashboard", label:"Dashboard"},
     {id:"home",      label:"Home"},
     {id:"wiki",      label:"Wiki"},
     {id:"compendio", label:"Compendio"},
-    {id:"generator", label:"Genera PG"},
+    {id:"generator", label:"Crea PG"},
     {id:"scheda",    label:"Scheda"},
     {id:"battle",    label:"Battaglia"},
     {id:"tracker",   label:"Tracker"},
   ];
 
   const PageComponent = {
+    dashboard: () => <DashboardPage utente={utente} utenteData={utenteData} setPage={setPage} onLogout={eseguiLogout} onAggiornaProfilo={aggiornaProfilo} />,
     home:      () => <HomePage setPage={setPage} />,
     wiki:      () => <WikiPage />,
     compendio: () => <CompendioPage />,
-    generator: () => <GeneratorePage setPage={setPage} />,
-    scheda:    () => <SchedaGiocabile setPage={setPage} />,
+    generator: () => <GeneratorePage setPage={setPage} utente={utente} />,
+    scheda:    () => <SchedaGiocabile setPage={setPage} utente={utente} />,
     battle:    () => <BattlePage />,
-    tracker:   () => <TrackerPage />,
-  }[page] || (() => <HomePage setPage={setPage} />);
+    tracker:   () => <TrackerPage utente={utente} />,
+  }[page] || (() => <DashboardPage utente={utente} utenteData={utenteData} setPage={setPage} onLogout={eseguiLogout} onAggiornaProfilo={aggiornaProfilo} />);
 
   return (
     <>
@@ -6189,7 +6743,7 @@ export default function App() {
         <div className="app-content">
           <nav className="navbar">
             {/* Logo: prima prova immagine, poi fallback testo */}
-            <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", cursor:"pointer" }} onClick={() => setPage("home")}>
+            <div style={{ display:"flex", alignItems:"center", gap:"0.75rem", cursor:"pointer" }} onClick={() => setPage("dashboard")}>
               <img
                 src="/logo.png"
                 alt=""
@@ -6207,6 +6761,25 @@ export default function App() {
                   {n.label}
                 </button>
               ))}
+            </div>
+
+            <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:"0.6rem" }}>
+              <button onClick={() => setPage("dashboard")}
+                title="Apri la tua Dashboard"
+                style={{
+                  background:"transparent", border:"1px solid var(--border)",
+                  borderRadius:20, padding:"0.3rem 0.6rem 0.3rem 0.3rem",
+                  display:"flex", alignItems:"center", gap:"0.45rem", cursor:"pointer",
+                  color:"var(--text-bright)", fontSize:"0.78rem",
+                }}>
+                <span style={{
+                  width:26, height:26, borderRadius:"50%",
+                  background: `linear-gradient(135deg, ${utenteData?.color || "#8c6eff"}, var(--purple))`,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontFamily:"'Cinzel',serif", fontWeight:700, color:"white", fontSize:"0.7rem",
+                }}>{(utenteData?.displayName || utente).slice(0,2).toUpperCase()}</span>
+                <span style={{ fontFamily:"'Cinzel',serif", fontWeight:600 }}>{utenteData?.displayName || utente}</span>
+              </button>
             </div>
           </nav>
 
